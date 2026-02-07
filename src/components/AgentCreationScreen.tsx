@@ -7,7 +7,7 @@ import { useAudioCapture } from '@/hooks/useAudioCapture';
 import { useVAD } from '@/hooks/useVAD';
 import { useTTSAudio } from '@/hooks/useTTSAudio';
 import { IncomingMessage } from '@/types';
-import { VOICES, DEFAULT_VOICE_ID, Voice } from '@/data/voices';
+import { VOICES, DEFAULT_VOICE_ID } from '@/data/voices';
 
 interface AgentConfig {
   voiceId: string;
@@ -65,6 +65,8 @@ export default function AgentCreationScreen({ userName, onComplete }: AgentCreat
   const isReadyRef = useRef(false);
   const hasInterruptedRef = useRef(false);
   const currentVoiceIdRef = useRef(DEFAULT_VOICE_ID);
+  const completingRef = useRef(false);
+  const hasAutoStarted = useRef(false);
 
   useEffect(() => {
     isActiveRef.current = isActive;
@@ -201,13 +203,11 @@ export default function AgentCreationScreen({ userName, onComplete }: AgentCreat
         // Save to localStorage
         localStorage.setItem(STORAGE_KEY, JSON.stringify(finalConfig));
         
-        // Wait a moment then complete
-        setTimeout(() => {
-          onComplete(finalConfig);
-        }, 2000);
+        // Mark that we're completing (to trigger cleanup)
+        completingRef.current = true;
       }
     }
-  }, [queueAudioChunk, stopAudio, resetStopFlag, agentConfig, onComplete]);
+  }, [queueAudioChunk, stopAudio, resetStopFlag, agentConfig]);
 
   const { isConnected, connect, sendMessage, disconnect } = useWebSocket(handleMessage);
 
@@ -267,7 +267,7 @@ export default function AgentCreationScreen({ userName, onComplete }: AgentCreat
   }, [isActive, getAudioLevel, isPlaying]);
 
   // ─── Start agent creation session ──────────────────────────────────
-  const handleStart = async () => {
+  const handleStart = useCallback(async () => {
     try {
       setError(null);
       hasInterruptedRef.current = false;
@@ -290,9 +290,9 @@ export default function AgentCreationScreen({ userName, onComplete }: AgentCreat
       console.error('Failed to start:', err);
       setError('Failed to start. Please check your microphone permissions.');
     }
-  };
+  }, [connect, startRecording, startVAD, sendMessage, userName, agentConfig.voiceId, resetStopFlag]);
 
-  const handleStop = () => {
+  const handleStop = useCallback(() => {
     sendMessage({ type: 'stop' });
     stopRecording();
     stopVAD();
@@ -303,7 +303,59 @@ export default function AgentCreationScreen({ userName, onComplete }: AgentCreat
     setCurrentUserText('');
     setCurrentAgentText('');
     hasInterruptedRef.current = false;
-  };
+  }, [sendMessage, stopRecording, stopVAD, stopAudio, disconnect]);
+
+  // ─── Auto-start on mount ──────────────────────────────────────────
+  useEffect(() => {
+    if (!hasAutoStarted.current) {
+      hasAutoStarted.current = true;
+      // Small delay to ensure everything is mounted
+      const timer = setTimeout(() => {
+        handleStart();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [handleStart]);
+
+  // ─── Handle completion: cleanup and transition ────────────────────
+  useEffect(() => {
+    if (phase === 'complete' && completingRef.current) {
+      // Wait for the final TTS to finish playing, then cleanup and transition
+      const checkAndComplete = () => {
+        if (!isPlaying()) {
+          console.log('🧹 Cleaning up agent creation session before transition');
+          
+          // Stop everything
+          sendMessage({ type: 'stop' });
+          stopRecording();
+          stopVAD();
+          stopAudio();
+          disconnect();
+          
+          // Small delay to ensure cleanup is done
+          setTimeout(() => {
+            onComplete(agentConfig);
+          }, 500);
+        } else {
+          // Still playing, check again
+          setTimeout(checkAndComplete, 200);
+        }
+      };
+      
+      // Start checking after a brief delay
+      setTimeout(checkAndComplete, 1500);
+    }
+  }, [phase, agentConfig, onComplete, sendMessage, stopRecording, stopVAD, stopAudio, disconnect, isPlaying]);
+
+  // ─── Cleanup on unmount ───────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (isActiveRef.current) {
+        console.log('🧹 AgentCreationScreen unmounting - cleaning up');
+        stopAudio();
+      }
+    };
+  }, [stopAudio]);
 
   // Get current voice info
   const currentVoice = VOICES.find((v) => v.id === agentConfig.voiceId);
