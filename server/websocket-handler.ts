@@ -2,17 +2,23 @@ import { WebSocket, RawData } from 'ws';
 import { DeepgramService } from './services/deepgram.service.js';
 import { LLMService } from './services/llm.service.js';
 import { TTSService } from './services/tts.service.js';
-import { ClientSession, WebSocketMessage, OutgoingMessage } from './types.js';
+import { AgentCreationService } from './services/agent-creation.service.js';
+import { ClientSession, WebSocketMessage, OutgoingMessage, Voice, AgentCreationState } from './types.js';
 import { logger } from './logger.js';
 import { SessionAbortManager } from './abort-controller.js';
 import { PromptStore } from './stores/prompt.store.js';
 import { ConversationStore } from './stores/conversation.store.js';
 import { randomUUID } from 'crypto';
 
+// Default voice for agent creation
+const DEFAULT_CREATION_VOICE_ID = '6ccbfb76-1fc6-48f7-b71d-91ac6298247b';
+const DEFAULT_CREATION_VOICE_NAME = 'Tessa';
+
 export class WebSocketHandler {
   private deepgramService: DeepgramService;
   private llmService: LLMService;
   private ttsService: TTSService;
+  private agentCreationService: AgentCreationService;
   private sessions: Map<WebSocket, ClientSession>;
   private promptStore: PromptStore;
   private conversationStore: ConversationStore;
@@ -21,6 +27,7 @@ export class WebSocketHandler {
     this.deepgramService = new DeepgramService();
     this.llmService = new LLMService();
     this.ttsService = new TTSService();
+    this.agentCreationService = new AgentCreationService();
     this.sessions = new Map();
     this.promptStore = new PromptStore();
     this.conversationStore = new ConversationStore();
@@ -67,7 +74,14 @@ export class WebSocketHandler {
     logger.debug(`📨 Received message type: ${data.type}`);
 
     if (data.type === 'start') {
-      session = await this.handleStart(ws, data.voiceId, data.systemPrompt, data.userName);
+      session = await this.handleStart(
+        ws, 
+        data.voiceId, 
+        data.systemPrompt, 
+        data.userName,
+        data.mode,
+        data.voices
+      );
     } else if (data.type === 'audio') {
       const storedSession = this.sessions.get(ws);
       await this.handleAudio(ws, data, storedSession ?? null);
@@ -84,9 +98,11 @@ export class WebSocketHandler {
     ws: WebSocket,
     voiceId?: string,
     systemPrompt?: string,
-    userName?: string
+    userName?: string,
+    mode?: 'normal' | 'agent_creation',
+    voices?: Voice[]
   ): Promise<ClientSession> {
-    logger.info('🎤 Starting voice session...', { userName });
+    logger.info('🎤 Starting voice session...', { userName, mode: mode || 'normal' });
 
     const existingSession = this.sessions.get(ws);
     if (existingSession) {
@@ -112,26 +128,129 @@ export class WebSocketHandler {
       sessionId,
       userName: userName || '(anonymous)',
       promptLength: resolvedPrompt.length,
+      mode: mode || 'normal',
     });
+
+    // Initialize agent creation state if in creation mode
+    let agentCreation: AgentCreationState | undefined;
+    if (mode === 'agent_creation') {
+      const initialVoiceId = voiceId || DEFAULT_CREATION_VOICE_ID;
+      const initialVoice = voices?.find(v => v.id === initialVoiceId);
+      
+      agentCreation = {
+        phase: 'voice',
+        voiceId: initialVoiceId,
+        voiceName: initialVoice?.name || DEFAULT_CREATION_VOICE_NAME,
+        humor: 5,
+        formality: 5,
+        traits: [],
+        availableVoices: voices || [],
+      };
+    }
 
     const session: ClientSession = {
       id: sessionId,
       deepgramConnection: this.deepgramService.createFluxConnection(),
       isListening: true,
       currentTranscript: '',
-      voiceId,
+      voiceId: mode === 'agent_creation' ? (voiceId || DEFAULT_CREATION_VOICE_ID) : voiceId,
       systemPrompt: resolvedPrompt,
       userName,
       abortManager: new SessionAbortManager(),
       conversationHistory,
-      sentenceQueue: [], // Initialize the sentence queue
+      sentenceQueue: [],
+      mode: mode || 'normal',
+      agentCreation,
     };
 
     this.sessions.set(ws, session);
     this.setupDeepgramHandlers(ws, session);
     logger.info('✅ Deepgram connection created');
 
+    // If in agent creation mode, send initial greeting after connection is ready
+    if (mode === 'agent_creation') {
+      this.sendAgentCreationGreeting(ws, session);
+    }
+
     return session;
+  }
+
+  /**
+   * Send the initial greeting for agent creation mode
+   */
+  private async sendAgentCreationGreeting(ws: WebSocket, session: ClientSession): Promise<void> {
+    if (!session.agentCreation) return;
+
+    // Wait a moment for connection to be fully established
+    setTimeout(async () => {
+      const greeting = await this.agentCreationService.generateInitialGreeting(
+        session.userName || 'there',
+        session.agentCreation!.voiceName
+      );
+
+      // Add to conversation history
+      session.conversationHistory.addAssistantMessage(greeting);
+
+      // Send the greeting text
+      this.sendMessage(ws, {
+        type: 'response',
+        text: greeting,
+        speaker: 'agent',
+        isPartial: false,
+      });
+
+      // TTS the greeting
+      session.sentenceQueue.push(greeting);
+      this.processAgentCreationTTSQueue(ws, session);
+    }, 500);
+  }
+
+  /**
+   * Process TTS queue for agent creation (uses dynamic voice ID)
+   */
+  private async processAgentCreationTTSQueue(ws: WebSocket, session: ClientSession): Promise<void> {
+    if (!session.agentCreation) return;
+
+    while (session.sentenceQueue.length > 0 && !session.abortManager.getTTSController().isAborted()) {
+      const sentence = session.sentenceQueue.shift()!;
+      
+      // Use the current voice ID from agent creation state
+      const currentVoiceId = session.agentCreation.voiceId;
+      
+      try {
+        const ttsWs = await this.getOrCreateTTSConnection(session);
+        const ttsController = session.abortManager.getTTSController();
+
+        const { readingPromise } = await this.ttsService.streamTTSOnConnection(
+          ttsWs,
+          sentence,
+          {
+            onAudioChunk: (audioChunk: Buffer) => {
+              this.sendMessage(ws, {
+                type: 'audio_chunk',
+                audio: audioChunk.toString('base64'),
+                format: 'pcm_f32le',
+                sampleRate: 22050,
+              });
+            },
+            onError: (error: Error) => {
+              if (!ttsController.isAborted()) {
+                logger.error(error, { context: 'agent_creation_tts' });
+                session.ttsWebSocketReady = false;
+              }
+            },
+            voiceId: currentVoiceId,
+          },
+          ttsController
+        );
+
+        await readingPromise;
+      } catch (error) {
+        if (!session.abortManager.getTTSController().isAborted()) {
+          logger.error(error, { context: 'agent_creation_tts' });
+        }
+      }
+    }
   }
 
   private setupDeepgramHandlers(ws: WebSocket, session: ClientSession): void {
@@ -236,7 +355,8 @@ export class WebSocketHandler {
       case 'EndOfTurn':
         // User has finished speaking - final transcript is ready
         logger.info('🎤 EndOfTurn - User finished speaking', { 
-          transcript: transcriptText.substring(0, 50) 
+          transcript: transcriptText.substring(0, 50),
+          mode: session.mode || 'normal',
         });
         
         this.sendMessage(ws, {
@@ -248,13 +368,20 @@ export class WebSocketHandler {
 
         // Add to conversation history
         session.conversationHistory.addUserMessage(transcriptText);
-        await this.generateLLMResponse(ws, transcriptText);
+        
+        // Route to appropriate handler based on mode
+        if (session.mode === 'agent_creation') {
+          await this.handleAgentCreationInput(ws, session, transcriptText);
+        } else {
+          await this.generateLLMResponse(ws, transcriptText);
+        }
         break;
 
       case 'EagerEndOfTurn':
         // Early turn detection - user likely finished but may continue
         logger.info('⚡ EagerEndOfTurn - Starting early LLM processing', { 
-          transcript: transcriptText.substring(0, 50) 
+          transcript: transcriptText.substring(0, 50),
+          mode: session.mode || 'normal',
         });
         
         // Send partial transcript for UI feedback
@@ -267,8 +394,13 @@ export class WebSocketHandler {
 
         // Add to conversation history (will be used in LLM call)
         session.conversationHistory.addUserMessage(transcriptText);
-        // Start LLM response early for reduced latency
-        await this.generateLLMResponse(ws, transcriptText);
+        
+        // Route to appropriate handler based on mode
+        if (session.mode === 'agent_creation') {
+          await this.handleAgentCreationInput(ws, session, transcriptText);
+        } else {
+          await this.generateLLMResponse(ws, transcriptText);
+        }
         break;
 
       case 'TurnResumed':
@@ -288,6 +420,123 @@ export class WebSocketHandler {
 
       default:
         logger.debug(`📥 Unhandled Flux event: ${event}`);
+    }
+  }
+
+  /**
+   * Handle user input during agent creation mode
+   */
+  private async handleAgentCreationInput(
+    ws: WebSocket, 
+    session: ClientSession, 
+    transcript: string
+  ): Promise<void> {
+    if (!session.agentCreation) {
+      logger.warn('⚠️ Agent creation input received but no creation state');
+      return;
+    }
+
+    if (session.isProcessingResponse) {
+      logger.warn('⚠️ Already processing agent creation response, skipping');
+      return;
+    }
+
+    session.isProcessingResponse = true;
+
+    try {
+      // Get conversation history for context
+      const history = session.conversationHistory.getMessagesForLLM();
+      
+      // Process the input through agent creation service
+      const result = await this.agentCreationService.processAgentCreationInput(
+        transcript,
+        session.agentCreation,
+        session.userName || 'there',
+        history
+      );
+
+      // Update voice ID if changed
+      if (result.newVoiceId) {
+        session.agentCreation.voiceId = result.newVoiceId;
+        session.voiceId = result.newVoiceId;
+        
+        // Disconnect existing TTS connection so next TTS uses new voice
+        if (session.ttsWebSocket) {
+          try {
+            session.ttsWebSocket.disconnect();
+          } catch {
+            // Expected
+          }
+          session.ttsWebSocket = null;
+          session.ttsWebSocketReady = false;
+        }
+      }
+
+      // Update agent creation state based on result
+      if (result.agentCreation) {
+        const { type, voiceId, voiceName, humor, formality, traits } = result.agentCreation;
+
+        if (type === 'voice_selected') {
+          // Only allow voice changes during voice phase
+          if (session.agentCreation.phase === 'voice') {
+            if (voiceId) session.agentCreation.voiceId = voiceId;
+            if (voiceName) session.agentCreation.voiceName = voiceName;
+            logger.info('🎤 Voice updated', { voiceName, phase: session.agentCreation.phase });
+          } else {
+            logger.warn('⚠️ Ignoring voice change - not in voice phase', { phase: session.agentCreation.phase });
+            // Clear the newVoiceId so TTS doesn't switch
+            result.newVoiceId = undefined;
+          }
+        }
+
+        if (type === 'personality_set') {
+          // Update personality values if provided
+          if (humor !== undefined) session.agentCreation.humor = humor;
+          if (formality !== undefined) session.agentCreation.formality = formality;
+          if (traits && traits.length > 0) session.agentCreation.traits = traits;
+          
+          // Move to personality phase if we were in voice phase (voice is now confirmed)
+          if (session.agentCreation.phase === 'voice') {
+            session.agentCreation.phase = 'personality';
+            logger.info('✅ Phase transition: voice → personality', { voiceName: session.agentCreation.voiceName });
+          }
+        }
+
+        if (type === 'creation_complete') {
+          session.agentCreation.phase = 'complete';
+          logger.info('🎉 Agent creation complete');
+        }
+      }
+
+      // Add response to conversation history
+      session.conversationHistory.addAssistantMessage(result.response);
+
+      // Include current phase in the agent creation data
+      const agentCreationWithPhase = result.agentCreation 
+        ? { ...result.agentCreation, phase: session.agentCreation.phase }
+        : { phase: session.agentCreation.phase };
+
+      // Send response with agent creation data
+      this.sendMessage(ws, {
+        type: 'response',
+        text: result.response,
+        speaker: 'agent',
+        isPartial: false,
+        agentCreation: agentCreationWithPhase,
+      });
+
+      // Queue TTS for the response
+      session.sentenceQueue.push(result.response);
+      await this.processAgentCreationTTSQueue(ws, session);
+
+    } catch (error) {
+      logger.error(error, { context: 'agent_creation_input' });
+      this.sendMessage(ws, {
+        type: 'error',
+        message: 'Failed to process agent creation input',
+      });
+    } finally {
+      session.isProcessingResponse = false;
     }
   }
 

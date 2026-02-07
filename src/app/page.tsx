@@ -1,20 +1,41 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Mic, MicOff, Volume2, MessageSquare, Zap } from 'lucide-react';
+import { Mic, MicOff, Volume2, MessageSquare, Zap, Settings2 } from 'lucide-react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAudioCapture } from '@/hooks/useAudioCapture';
 import { useVAD } from '@/hooks/useVAD';
 import { useTTSAudio } from '@/hooks/useTTSAudio';
 import { Message, IncomingMessage } from '@/types';
 import LandingScreen from '@/components/LandingScreen';
+import AgentCreationScreen, { loadSavedAgentConfig, clearSavedAgentConfig } from '@/components/AgentCreationScreen';
 
-type AppScreen = 'landing' | 'agent';
+type AppScreen = 'landing' | 'agent_creation' | 'agent';
+
+interface AgentConfig {
+  voiceId: string;
+  voiceName: string;
+  systemPrompt: string;
+  personality: {
+    humor: number;
+    formality: number;
+    traits: string[];
+  };
+}
 
 export default function VoiceAgentPage() {
   // ─── App-level state ─────────────────────────────────────────────
   const [screen, setScreen] = useState<AppScreen>('landing');
   const [userName, setUserName] = useState('');
+  const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
+
+  // Check for saved agent config on mount
+  useEffect(() => {
+    const saved = loadSavedAgentConfig();
+    if (saved) {
+      setAgentConfig(saved);
+    }
+  }, []);
 
   // ─── Voice agent state ───────────────────────────────────────────
   const [isActive, setIsActive] = useState(false);
@@ -202,7 +223,27 @@ export default function VoiceAgentPage() {
   // ─── Landing flow ────────────────────────────────────────────────
   const handleNameSubmit = (name: string) => {
     setUserName(name);
+    // If we have a saved agent config, skip creation and go directly to agent
+    if (agentConfig) {
+      setScreen('agent');
+    } else {
+      setScreen('agent_creation');
+    }
+  };
+
+  // ─── Agent creation flow ────────────────────────────────────────
+  const handleAgentCreationComplete = (config: AgentConfig) => {
+    setAgentConfig(config);
     setScreen('agent');
+  };
+
+  // ─── Reconfigure agent ─────────────────────────────────────────
+  const handleReconfigureAgent = () => {
+    // Clear saved config and go back to creation
+    clearSavedAgentConfig();
+    setAgentConfig(null);
+    setMessages([]);
+    setScreen('agent_creation');
   };
 
   // ─── Voice session controls ──────────────────────────────────────
@@ -216,8 +257,13 @@ export default function VoiceAgentPage() {
       await startRecording();
       await startVAD();
       
-      // Send start message with the user's name
-      sendMessage({ type: 'start', userName });
+      // Send start message with the user's name and agent config
+      sendMessage({ 
+        type: 'start', 
+        userName,
+        voiceId: agentConfig?.voiceId,
+        systemPrompt: agentConfig?.systemPrompt,
+      });
       setIsActive(true);
     } catch (err) {
       console.error('Failed to start:', err);
@@ -241,6 +287,16 @@ export default function VoiceAgentPage() {
   // ─── Landing Screen ──────────────────────────────────────────────
   if (screen === 'landing') {
     return <LandingScreen onNameSubmit={handleNameSubmit} />;
+  }
+
+  // ─── Agent Creation Screen ──────────────────────────────────────
+  if (screen === 'agent_creation') {
+    return (
+      <AgentCreationScreen 
+        userName={userName} 
+        onComplete={handleAgentCreationComplete} 
+      />
+    );
   }
 
   // ─── Voice Agent Screen ──────────────────────────────────────────
@@ -323,15 +379,35 @@ export default function VoiceAgentPage() {
         </button>
       </div>
 
-      {/* Status indicators */}
-      <div className="relative z-10 flex items-center gap-4 mb-8">
-        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border ${isConnected ? 'border-gold/20 text-gold/80' : 'border-white/5 text-white/30'}`}>
-          <Zap className="w-3 h-3" />
-          <span className="text-xs font-medium">{isConnected ? 'Connected' : 'Disconnected'}</span>
-        </div>
-        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border ${isPlaying() ? 'border-gold/20 text-gold/80' : 'border-white/5 text-white/30'}`}>
-          <Volume2 className="w-3 h-3" />
-          <span className="text-xs font-medium">{isPlaying() ? 'Playing' : 'Silent'}</span>
+      {/* Agent info & Status indicators */}
+      <div className="relative z-10 flex flex-col items-center gap-3 mb-8">
+        {/* Current agent voice */}
+        {agentConfig && (
+          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-charcoal/50 border border-white/5">
+            <Volume2 className="w-4 h-4 text-gold/60" />
+            <span className="text-white/60 text-xs">Voice:</span>
+            <span className="text-white text-xs font-medium">{agentConfig.voiceName}</span>
+            <button
+              onClick={handleReconfigureAgent}
+              disabled={isActive}
+              className="ml-2 p-1 rounded hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Reconfigure agent"
+            >
+              <Settings2 className="w-3.5 h-3.5 text-white/40 hover:text-gold/80" />
+            </button>
+          </div>
+        )}
+        
+        {/* Status indicators */}
+        <div className="flex items-center gap-4">
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border ${isConnected ? 'border-gold/20 text-gold/80' : 'border-white/5 text-white/30'}`}>
+            <Zap className="w-3 h-3" />
+            <span className="text-xs font-medium">{isConnected ? 'Connected' : 'Disconnected'}</span>
+          </div>
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border ${isPlaying() ? 'border-gold/20 text-gold/80' : 'border-white/5 text-white/30'}`}>
+            <Volume2 className="w-3 h-3" />
+            <span className="text-xs font-medium">{isPlaying() ? 'Playing' : 'Silent'}</span>
+          </div>
         </div>
       </div>
 

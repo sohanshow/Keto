@@ -20,7 +20,7 @@ export function useTTSAudio() {
   const isStoppedRef = useRef(false);
   const gainNodeRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const dataArrayRef = useRef<Uint8Array | null>(null);
+  const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   const getAudioContext = useCallback((): AudioContext => {
     if (!audioContextRef.current) {
