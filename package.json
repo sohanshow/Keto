@@ -1,0 +1,45 @@
+{
+  "name": "keto-voice-agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Real-time AI Voice Agent with Deepgram STT, Claude LLM, and Cartesia TTS",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "next dev --port 3000",
+    "dev:server": "tsx watch server/index.ts",
+    "build": "next build",
+    "build:server": "tsc -p server/tsconfig.json",
+    "start": "next start",
+    "start:server": "node server/dist/index.js",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "@cartesia/cartesia-js": "^2.2.9",
+    "@langchain/core": "^0.3.13",
+    "@langchain/anthropic": "^0.3.0",
+    "@ricky0123/vad-web": "^0.0.29",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "lucide-react": "^0.468.0",
+    "next": "14.2.0",
+    "onnxruntime-web": "^1.14.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/node": "^20.19.23",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/ws": "^8.5.13",
+    "autoprefixer": "^10.4.20",
+    "concurrently": "^8.2.2",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.3"
+  }
+}
