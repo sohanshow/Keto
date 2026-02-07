@@ -1,14 +1,22 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Mic, MicOff, Volume2, MessageSquare, Zap, Sparkles } from 'lucide-react';
+import { Mic, MicOff, Volume2, MessageSquare, Zap } from 'lucide-react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAudioCapture } from '@/hooks/useAudioCapture';
 import { useVAD } from '@/hooks/useVAD';
 import { useTTSAudio } from '@/hooks/useTTSAudio';
 import { Message, IncomingMessage } from '@/types';
+import LandingScreen from '@/components/LandingScreen';
+
+type AppScreen = 'landing' | 'agent';
 
 export default function VoiceAgentPage() {
+  // ─── App-level state ─────────────────────────────────────────────
+  const [screen, setScreen] = useState<AppScreen>('landing');
+  const [userName, setUserName] = useState('');
+
+  // ─── Voice agent state ───────────────────────────────────────────
   const [isActive, setIsActive] = useState(false);
   const [isReady, setIsReady] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -20,9 +28,12 @@ export default function VoiceAgentPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
   
-  // Use refs to avoid stale closure issues in audio callback
+  // Use refs to avoid stale closure issues in callbacks
   const isActiveRef = useRef(false);
   const isReadyRef = useRef(false);
+  const userNameRef = useRef('');
+  // Tracks whether we interrupted TTS — used for recovery when new audio arrives
+  const hasInterruptedRef = useRef(false);
   
   // Keep refs in sync with state
   useEffect(() => {
@@ -32,6 +43,10 @@ export default function VoiceAgentPage() {
   useEffect(() => {
     isReadyRef.current = isReady;
   }, [isReady]);
+
+  useEffect(() => {
+    userNameRef.current = userName;
+  }, [userName]);
 
   const { queueAudioChunk, stopAudio, resetStopFlag, getAudioLevel, isPlaying } = useTTSAudio();
 
@@ -78,12 +93,25 @@ export default function VoiceAgentPage() {
         break;
 
       case 'audio_chunk':
-        if (data.audio) {
-          queueAudioChunk(data.audio, data.sampleRate || 22050);
+        // Handle streaming TTS audio chunks
+        if (data.audio && data.sampleRate) {
+          // ── Interrupt recovery ──
+          // After an interruption, isStoppedRef is true (set by stopAudio).
+          // We need to reset it when the FIRST new audio chunk arrives so
+          // the new response can actually be heard.
+          if (hasInterruptedRef.current) {
+            console.log('📦 New audio after interruption — resetting for new playback');
+            hasInterruptedRef.current = false;
+            resetStopFlag(); // sets isStoppedRef = false → audio can be queued again
+          }
+
+          queueAudioChunk(data.audio, data.sampleRate);
         }
         break;
 
       case 'tts_stopped':
+        // Backend confirmed abort — second safety net to kill any audio
+        // that arrived between the client-side stopAudio() and backend abort.
         console.log('🛑 TTS stopped by server');
         stopAudio();
         break;
@@ -99,7 +127,7 @@ export default function VoiceAgentPage() {
         setError(data.message || 'Unknown error');
         break;
     }
-  }, [queueAudioChunk, stopAudio]);
+  }, [queueAudioChunk, stopAudio, resetStopFlag]);
 
   const { isConnected, connect, sendMessage, disconnect } = useWebSocket(handleMessage);
 
@@ -115,15 +143,32 @@ export default function VoiceAgentPage() {
 
   const { startRecording, stopRecording } = useAudioCapture(onAudioChunk);
 
-  // VAD for interruption handling
+  // ─── VAD: Handle user interruptions ─────────────────────────────
+  // When Silero VAD detects speech while TTS is playing, we:
+  //   1. Mark that we interrupted (so audio_chunk recovery knows)
+  //   2. Stop TTS audio playback immediately (client-side)
+  //   3. Send interrupt message to backend to abort LLM + TTS streams
+  const handleSpeechStart = useCallback(() => {
+    // Guard: only interrupt when we're in an active recording session
+    if (!isActiveRef.current) return;
+
+    // Only interrupt if TTS is actually playing — otherwise the user
+    // is just speaking normally (e.g. giving a new utterance).
+    if (isPlaying()) {
+      console.log('🗣️ User started speaking — stopping TTS and sending interrupt');
+      hasInterruptedRef.current = true;
+
+      // Stop TTS audio playback immediately (client-side) — clears queue
+      // and sets isStoppedRef = true so late-arriving chunks are dropped
+      stopAudio();
+
+      // Tell backend to abort TTS/LLM streams
+      sendMessage({ type: 'interrupt' });
+    }
+  }, [stopAudio, sendMessage, isPlaying]);
+
   const { startVAD, stopVAD, isSpeaking } = useVAD({
-    onSpeechStart: () => {
-      if (isPlaying()) {
-        console.log('⚡ User speaking while TTS playing - sending interrupt');
-        sendMessage({ type: 'interrupt' });
-        stopAudio();
-      }
-    },
+    onSpeechStart: handleSpeechStart,
     enabled: isActive,
   });
 
@@ -154,17 +199,25 @@ export default function VoiceAgentPage() {
     };
   }, [isActive, getAudioLevel, isPlaying]);
 
-  // Start voice session
+  // ─── Landing flow ────────────────────────────────────────────────
+  const handleNameSubmit = (name: string) => {
+    setUserName(name);
+    setScreen('agent');
+  };
+
+  // ─── Voice session controls ──────────────────────────────────────
   const handleStart = async () => {
     try {
       setError(null);
+      hasInterruptedRef.current = false;
       resetStopFlag();
       
       await connect();
       await startRecording();
       await startVAD();
       
-      sendMessage({ type: 'start' });
+      // Send start message with the user's name
+      sendMessage({ type: 'start', userName });
       setIsActive(true);
     } catch (err) {
       console.error('Failed to start:', err);
@@ -172,7 +225,6 @@ export default function VoiceAgentPage() {
     }
   };
 
-  // Stop voice session
   const handleStop = () => {
     sendMessage({ type: 'stop' });
     stopRecording();
@@ -183,38 +235,54 @@ export default function VoiceAgentPage() {
     setIsReady(false);
     setCurrentUserText('');
     setCurrentAgentText('');
+    hasInterruptedRef.current = false;
   };
 
+  // ─── Landing Screen ──────────────────────────────────────────────
+  if (screen === 'landing') {
+    return <LandingScreen onNameSubmit={handleNameSubmit} />;
+  }
+
+  // ─── Voice Agent Screen ──────────────────────────────────────────
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8">
+    <main className="min-h-screen bg-void flex flex-col items-center justify-center p-4 sm:p-8">
+      {/* Subtle ambient glow */}
+      <div className="fixed inset-0 pointer-events-none">
+        <div 
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-[180px] transition-opacity duration-1000"
+          style={{ 
+            background: isActive ? 'rgba(212, 168, 83, 0.04)' : 'transparent',
+          }}
+        />
+      </div>
+
       {/* Header */}
-      <div className="text-center mb-8 animate-[fadeIn_0.6s_ease-out]">
-        <div className="flex items-center justify-center gap-2 mb-2">
-          <Sparkles className="w-6 h-6 text-accent" />
-          <h1 className="font-display text-4xl sm:text-5xl font-bold bg-gradient-to-r from-accent via-mint to-coral bg-clip-text text-transparent">
-            Voice Agent
-          </h1>
-          <Sparkles className="w-6 h-6 text-coral" />
-        </div>
-        <p className="text-white/60 font-sans text-sm sm:text-base">
-          Press the mic to start a conversation
+      <div 
+        className="relative z-10 text-center mb-10"
+        style={{ animation: 'fadeIn 0.6s ease-out' }}
+      >
+        <h1 className="font-display text-3xl sm:text-4xl font-bold text-white mb-2">
+          Voice Agent
+        </h1>
+        <p className="text-white/40 font-sans text-sm">
+          Hey <span className="text-gold">{userName}</span> — press the mic to start
         </p>
       </div>
 
       {/* Voice Orb */}
-      <div className="relative mb-8">
-        {/* Outer rings */}
+      <div className="relative z-10 mb-10">
+        {/* Outer pulse rings */}
         {isActive && (
           <>
             <div 
-              className="absolute inset-0 rounded-full bg-accent/20 animate-pulse-ring"
-              style={{ transform: `scale(${1.3 + audioLevel * 0.5})` }}
+              className="absolute inset-0 rounded-full bg-gold/10 animate-pulse-ring"
+              style={{ transform: `scale(${1.2 + audioLevel * 0.4})` }}
             />
             <div 
-              className="absolute inset-0 rounded-full bg-mint/20 animate-pulse-ring"
+              className="absolute inset-0 rounded-full bg-gold/5 animate-pulse-ring"
               style={{ 
-                animationDelay: '0.5s',
-                transform: `scale(${1.2 + audioLevel * 0.3})` 
+                animationDelay: '0.7s',
+                transform: `scale(${1.1 + audioLevel * 0.2})` 
               }}
             />
           </>
@@ -224,68 +292,67 @@ export default function VoiceAgentPage() {
         <button
           onClick={isActive ? handleStop : handleStart}
           className={`
-            relative w-32 h-32 sm:w-40 sm:h-40 rounded-full
+            relative w-28 h-28 sm:w-36 sm:h-36 rounded-full
             flex items-center justify-center
             transition-all duration-500 ease-out
             ${isActive 
-              ? 'bg-gradient-to-br from-accent/30 to-mint/30 animate-breathe' 
-              : 'bg-gradient-to-br from-deep to-midnight hover:from-accent/20 hover:to-mint/20'
+              ? 'bg-charcoal' 
+              : 'bg-charcoal hover:bg-graphite'
             }
-            border-2 ${isActive ? 'border-accent/50' : 'border-white/10 hover:border-accent/30'}
-            shadow-2xl
+            border ${isActive ? 'border-gold/30' : 'border-white/5 hover:border-gold/20'}
             group
           `}
           style={{
             boxShadow: isActive 
-              ? `0 0 ${40 + audioLevel * 60}px rgba(0, 217, 255, ${0.4 + audioLevel * 0.4})` 
-              : undefined
+              ? `0 0 ${30 + audioLevel * 50}px rgba(212, 168, 83, ${0.15 + audioLevel * 0.2})` 
+              : '0 0 0 rgba(0,0,0,0)'
           }}
         >
           {isActive ? (
-            <MicOff className="w-12 h-12 sm:w-16 sm:h-16 text-coral group-hover:scale-110 transition-transform" />
+            <MicOff className="w-10 h-10 sm:w-12 sm:h-12 text-gold/80 group-hover:text-gold transition-colors" />
           ) : (
-            <Mic className="w-12 h-12 sm:w-16 sm:h-16 text-accent group-hover:scale-110 transition-transform" />
+            <Mic className="w-10 h-10 sm:w-12 sm:h-12 text-white/40 group-hover:text-gold transition-colors" />
           )}
           
           {/* Speaking indicator */}
           {isSpeaking && (
-            <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 bg-mint px-3 py-1 rounded-full">
-              <span className="text-xs font-medium text-midnight">Speaking</span>
+            <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-gold px-3 py-1 rounded-full">
+              <span className="text-xs font-medium text-void">Speaking</span>
             </div>
           )}
         </button>
       </div>
 
       {/* Status indicators */}
-      <div className="flex items-center gap-6 mb-8">
-        <div className={`flex items-center gap-2 px-4 py-2 rounded-full glass ${isConnected ? 'text-mint' : 'text-white/40'}`}>
-          <Zap className="w-4 h-4" />
-          <span className="text-sm font-medium">{isConnected ? 'Connected' : 'Disconnected'}</span>
+      <div className="relative z-10 flex items-center gap-4 mb-8">
+        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border ${isConnected ? 'border-gold/20 text-gold/80' : 'border-white/5 text-white/30'}`}>
+          <Zap className="w-3 h-3" />
+          <span className="text-xs font-medium">{isConnected ? 'Connected' : 'Disconnected'}</span>
         </div>
-        <div className={`flex items-center gap-2 px-4 py-2 rounded-full glass ${isPlaying() ? 'text-accent' : 'text-white/40'}`}>
-          <Volume2 className="w-4 h-4" />
-          <span className="text-sm font-medium">{isPlaying() ? 'Playing' : 'Silent'}</span>
+        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border ${isPlaying() ? 'border-gold/20 text-gold/80' : 'border-white/5 text-white/30'}`}>
+          <Volume2 className="w-3 h-3" />
+          <span className="text-xs font-medium">{isPlaying() ? 'Playing' : 'Silent'}</span>
         </div>
       </div>
 
       {/* Error display */}
       {error && (
-        <div className="mb-6 px-6 py-3 bg-coral/20 border border-coral/30 rounded-xl text-coral text-sm max-w-md text-center">
+        <div className="relative z-10 mb-6 px-5 py-3 bg-charcoal border border-red-500/20 rounded-lg text-red-400 text-sm max-w-md text-center">
           {error}
         </div>
       )}
 
       {/* Transcript area */}
-      <div className="w-full max-w-2xl glass rounded-2xl p-6">
-        <div className="flex items-center gap-2 mb-4 pb-4 border-b border-white/10">
-          <MessageSquare className="w-5 h-5 text-accent" />
-          <h2 className="font-display text-lg font-semibold">Conversation</h2>
+      <div className="relative z-10 w-full max-w-2xl bg-charcoal/50 border border-white/5 rounded-xl p-5">
+        <div className="flex items-center gap-2 mb-4 pb-3 border-b border-white/5">
+          <MessageSquare className="w-4 h-4 text-gold/60" />
+          <h2 className="font-sans text-sm font-medium text-white/60">Conversation</h2>
         </div>
 
-        <div className="h-64 overflow-y-auto space-y-4 pr-2">
+        <div className="h-56 overflow-y-auto space-y-3 pr-2">
           {messages.length === 0 && !currentUserText && !currentAgentText && (
             <div className="h-full flex items-center justify-center">
-              <p className="text-white/30 text-center">
+              <p className="text-white/20 text-sm text-center">
                 {isActive 
                   ? "I'm listening... speak naturally" 
                   : 'Start speaking to begin the conversation'
@@ -301,15 +368,15 @@ export default function VoiceAgentPage() {
             >
               <div
                 className={`
-                  max-w-[80%] px-4 py-3 rounded-2xl
+                  max-w-[80%] px-4 py-2.5 rounded-xl
                   ${message.speaker === 'user'
-                    ? 'bg-accent/20 text-white rounded-br-md'
-                    : 'bg-white/10 text-white/90 rounded-bl-md'
+                    ? 'bg-gold/10 text-white/90 rounded-br-sm'
+                    : 'bg-white/5 text-white/80 rounded-bl-sm'
                   }
                 `}
               >
                 <p className="text-sm leading-relaxed">{message.text}</p>
-                <span className="text-xs text-white/40 mt-1 block">
+                <span className="text-xs text-white/30 mt-1 block">
                   {message.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </span>
               </div>
@@ -319,7 +386,7 @@ export default function VoiceAgentPage() {
           {/* Current user text (partial) */}
           {currentUserText && (
             <div className="flex justify-end">
-              <div className="max-w-[80%] px-4 py-3 rounded-2xl bg-accent/10 text-white/70 rounded-br-md border border-accent/20 border-dashed">
+              <div className="max-w-[80%] px-4 py-2.5 rounded-xl bg-gold/5 text-white/50 rounded-br-sm border border-gold/10 border-dashed">
                 <p className="text-sm leading-relaxed italic">{currentUserText}</p>
               </div>
             </div>
@@ -328,7 +395,7 @@ export default function VoiceAgentPage() {
           {/* Current agent text (partial) */}
           {currentAgentText && (
             <div className="flex justify-start">
-              <div className="max-w-[80%] px-4 py-3 rounded-2xl bg-white/5 text-white/70 rounded-bl-md border border-white/10 border-dashed">
+              <div className="max-w-[80%] px-4 py-2.5 rounded-xl bg-white/[0.02] text-white/50 rounded-bl-sm border border-white/5 border-dashed">
                 <p className="text-sm leading-relaxed italic">{currentAgentText}</p>
               </div>
             </div>
@@ -339,7 +406,7 @@ export default function VoiceAgentPage() {
       </div>
 
       {/* Footer hint */}
-      <p className="mt-6 text-white/30 text-xs text-center">
+      <p className="relative z-10 mt-6 text-white/20 text-xs text-center">
         Speak naturally • Interrupt anytime • Click mic to stop
       </p>
     </main>

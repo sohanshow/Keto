@@ -10,6 +10,7 @@ export interface WebSocketMessage {
   type: 'start' | 'audio' | 'stop' | 'interrupt';
   voiceId?: string;
   systemPrompt?: string;
+  userName?: string;
   audio?: string;
 }
 
