@@ -66,7 +66,7 @@ export default function AgentCreationScreen({ userName, onComplete }: AgentCreat
   const hasInterruptedRef = useRef(false);
   const currentVoiceIdRef = useRef(DEFAULT_VOICE_ID);
   const completingRef = useRef(false);
-  const hasAutoStarted = useRef(false);
+  const [shouldAutoStart, setShouldAutoStart] = useState(true);
 
   useEffect(() => {
     isActiveRef.current = isActive;
@@ -307,15 +307,37 @@ export default function AgentCreationScreen({ userName, onComplete }: AgentCreat
 
   // ─── Auto-start on mount ──────────────────────────────────────────
   useEffect(() => {
-    if (!hasAutoStarted.current) {
-      hasAutoStarted.current = true;
-      // Small delay to ensure everything is mounted
-      const timer = setTimeout(() => {
-        handleStart();
-      }, 500);
-      return () => clearTimeout(timer);
-    }
-  }, [handleStart]);
+    if (!shouldAutoStart || isActive) return;
+
+    const autoStart = async () => {
+      console.log('🚀 Auto-starting agent creation session...');
+      setShouldAutoStart(false); // Prevent re-triggering
+      
+      try {
+        resetStopFlag();
+        await connect();
+        await startRecording();
+        await startVAD();
+
+        sendMessage({
+          type: 'start',
+          userName,
+          mode: 'agent_creation',
+          voiceId: agentConfig.voiceId,
+          voices: VOICES,
+        });
+        setIsActive(true);
+        console.log('✅ Auto-start complete');
+      } catch (err) {
+        console.error('❌ Auto-start failed:', err);
+        setError('Failed to start. Please check your microphone permissions.');
+      }
+    };
+
+    // Delay to ensure component is fully mounted
+    const timer = setTimeout(autoStart, 800);
+    return () => clearTimeout(timer);
+  }, [shouldAutoStart, isActive, resetStopFlag, connect, startRecording, startVAD, sendMessage, userName, agentConfig.voiceId]);
 
   // ─── Handle completion: cleanup and transition ────────────────────
   useEffect(() => {

@@ -54,7 +54,7 @@ export default function LandingScreen({ onNameSubmit }: LandingScreenProps) {
           style={{ animation: 'fadeIn 1s ease-out' }}
         >
           <span className="font-display text-2xl font-semibold tracking-tight text-white/80">
-            Keto
+            Welcome to Keto
           </span>
         </div>
 
