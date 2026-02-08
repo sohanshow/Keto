@@ -3,7 +3,8 @@ import { DeepgramService } from './services/deepgram.service.js';
 import { LLMService } from './services/llm.service.js';
 import { TTSService } from './services/tts.service.js';
 import { AgentCreationService } from './services/agent-creation.service.js';
-import { ClientSession, WebSocketMessage, OutgoingMessage, Voice, AgentCreationState } from './types.js';
+import { PaintArenaService } from './services/paint-arena.service.js';
+import { ClientSession, WebSocketMessage, OutgoingMessage, Voice, AgentCreationState, PaintArenaState } from './types.js';
 import { logger } from './logger.js';
 import { SessionAbortManager } from './abort-controller.js';
 import { PromptStore } from './stores/prompt.store.js';
@@ -19,6 +20,7 @@ export class WebSocketHandler {
   private llmService: LLMService;
   private ttsService: TTSService;
   private agentCreationService: AgentCreationService;
+  private paintArenaService: PaintArenaService;
   private sessions: Map<WebSocket, ClientSession>;
   private promptStore: PromptStore;
   private conversationStore: ConversationStore;
@@ -28,6 +30,7 @@ export class WebSocketHandler {
     this.llmService = new LLMService();
     this.ttsService = new TTSService();
     this.agentCreationService = new AgentCreationService();
+    this.paintArenaService = new PaintArenaService();
     this.sessions = new Map();
     this.promptStore = new PromptStore();
     this.conversationStore = new ConversationStore();
@@ -91,6 +94,18 @@ export class WebSocketHandler {
     } else if (data.type === 'interrupt') {
       logger.info('⚡ Received interrupt message');
       await this.handleInterrupt(ws, this.sessions.get(ws) ?? null);
+    } else if (data.type === 'text_input') {
+      // Handle text input (for paint arena and other modes)
+      const storedSession = this.sessions.get(ws);
+      if (storedSession && data.text) {
+        await this.handleTextInput(ws, storedSession, data.text);
+      }
+    } else if (data.type === 'paint_reset') {
+      // Handle paint arena reset
+      const storedSession = this.sessions.get(ws);
+      if (storedSession?.paintArena) {
+        await this.handlePaintReset(ws, storedSession);
+      }
     }
   }
 
@@ -148,6 +163,15 @@ export class WebSocketHandler {
       };
     }
 
+    // Initialize paint arena state if in paint mode
+    let paintArena: PaintArenaState | undefined;
+    if (mode === 'paint_arena') {
+      paintArena = {
+        phase: 'asking',
+        chatHistory: [],
+      };
+    }
+
     const session: ClientSession = {
       id: sessionId,
       deepgramConnection: this.deepgramService.createFluxConnection(),
@@ -161,6 +185,7 @@ export class WebSocketHandler {
       sentenceQueue: [],
       mode: mode || 'normal',
       agentCreation,
+      paintArena,
     };
 
     this.sessions.set(ws, session);
@@ -170,6 +195,11 @@ export class WebSocketHandler {
     // If in agent creation mode, send initial greeting after connection is ready
     if (mode === 'agent_creation') {
       this.sendAgentCreationGreeting(ws, session);
+    }
+
+    // If in paint arena mode, send initial greeting
+    if (mode === 'paint_arena') {
+      this.sendPaintArenaGreeting(ws, session);
     }
 
     return session;
@@ -372,6 +402,8 @@ export class WebSocketHandler {
         // Route to appropriate handler based on mode
         if (session.mode === 'agent_creation') {
           await this.handleAgentCreationInput(ws, session, transcriptText);
+        } else if (session.mode === 'paint_arena') {
+          await this.handlePaintArenaInput(ws, session, transcriptText);
         } else {
           await this.generateLLMResponse(ws, transcriptText);
         }
@@ -398,6 +430,8 @@ export class WebSocketHandler {
         // Route to appropriate handler based on mode
         if (session.mode === 'agent_creation') {
           await this.handleAgentCreationInput(ws, session, transcriptText);
+        } else if (session.mode === 'paint_arena') {
+          await this.handlePaintArenaInput(ws, session, transcriptText);
         } else {
           await this.generateLLMResponse(ws, transcriptText);
         }
@@ -814,5 +848,314 @@ export class WebSocketHandler {
 
       this.sessions.delete(ws);
     }
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PAINT ARENA METHODS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Send the initial greeting for paint arena mode
+   */
+  private async sendPaintArenaGreeting(ws: WebSocket, session: ClientSession): Promise<void> {
+    if (!session.paintArena) return;
+
+    // Wait a moment for connection to be fully established
+    setTimeout(async () => {
+      const greeting = await this.paintArenaService.generateInitialGreeting(
+        session.userName || 'there'
+      );
+
+      // Add to chat history
+      session.paintArena!.chatHistory.push({ role: 'assistant', content: greeting });
+
+      // Send the greeting text
+      this.sendMessage(ws, {
+        type: 'response',
+        text: greeting,
+        speaker: 'agent',
+        isPartial: false,
+      });
+
+      // TTS the greeting
+      session.sentenceQueue.push(greeting);
+      this.processPaintArenaTTSQueue(ws, session);
+    }, 500);
+  }
+
+  /**
+   * Process TTS queue for paint arena
+   */
+  private async processPaintArenaTTSQueue(ws: WebSocket, session: ClientSession): Promise<void> {
+    if (!session.paintArena) return;
+
+    while (session.sentenceQueue.length > 0 && !session.abortManager.getTTSController().isAborted()) {
+      const sentence = session.sentenceQueue.shift()!;
+
+      try {
+        const ttsWs = await this.getOrCreateTTSConnection(session);
+        const ttsController = session.abortManager.getTTSController();
+
+        const { readingPromise } = await this.ttsService.streamTTSOnConnection(
+          ttsWs,
+          sentence,
+          {
+            onAudioChunk: (audioChunk: Buffer) => {
+              this.sendMessage(ws, {
+                type: 'audio_chunk',
+                audio: audioChunk.toString('base64'),
+                format: 'pcm_f32le',
+                sampleRate: 22050,
+              });
+            },
+            onError: (error: Error) => {
+              if (!ttsController.isAborted()) {
+                logger.error(error, { context: 'paint_arena_tts' });
+                session.ttsWebSocketReady = false;
+              }
+            },
+            voiceId: session.voiceId,
+          },
+          ttsController
+        );
+
+        await readingPromise;
+      } catch (error) {
+        if (!session.abortManager.getTTSController().isAborted()) {
+          logger.error(error, { context: 'paint_arena_tts' });
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle user input during paint arena mode
+   */
+  private async handlePaintArenaInput(
+    ws: WebSocket,
+    session: ClientSession,
+    transcript: string
+  ): Promise<void> {
+    if (!session.paintArena) {
+      logger.warn('⚠️ Paint arena input received but no paint state');
+      return;
+    }
+
+    // Don't process if we're currently generating an image
+    if (session.paintArena.phase === 'generating') {
+      logger.warn('⚠️ Ignoring input - image generation in progress');
+      return;
+    }
+
+    if (session.isProcessingResponse) {
+      logger.warn('⚠️ Already processing paint arena response, skipping');
+      return;
+    }
+
+    session.isProcessingResponse = true;
+
+    try {
+      // Add user message to chat history
+      session.paintArena.chatHistory.push({ role: 'user', content: transcript });
+
+      // Process the input through paint arena service
+      const result = await this.paintArenaService.processInput(
+        transcript,
+        session.paintArena,
+        session.userName || 'there'
+      );
+
+      // Add assistant response to chat history
+      session.paintArena.chatHistory.push({ role: 'assistant', content: result.response });
+
+      // Send the response text
+      this.sendMessage(ws, {
+        type: 'response',
+        text: result.response,
+        speaker: 'agent',
+        isPartial: false,
+      });
+
+      // TTS the response
+      session.sentenceQueue.push(result.response);
+      await this.processPaintArenaTTSQueue(ws, session);
+
+      // If we should generate an image, do it
+      if (result.shouldGenerateImage && result.imagePrompt) {
+        await this.handlePaintArenaImageGeneration(
+          ws,
+          session,
+          result.imagePrompt,
+          result.isEditRequest || false
+        );
+      }
+    } catch (error) {
+      logger.error(error, { context: 'paint_arena_input' });
+      this.sendMessage(ws, {
+        type: 'error',
+        message: 'Failed to process paint arena input',
+      });
+    } finally {
+      session.isProcessingResponse = false;
+    }
+  }
+
+  /**
+   * Handle text input (for paint arena text chat)
+   */
+  private async handleTextInput(
+    ws: WebSocket,
+    session: ClientSession,
+    text: string
+  ): Promise<void> {
+    logger.info('📝 Received text input', { text: text.substring(0, 50), mode: session.mode });
+
+    // Send the text as a user transcript
+    this.sendMessage(ws, {
+      type: 'transcript',
+      transcript: text,
+      isPartial: false,
+      speaker: 'user',
+    });
+
+    // Route based on mode
+    if (session.mode === 'paint_arena') {
+      await this.handlePaintArenaInput(ws, session, text);
+    } else {
+      // For other modes, treat as regular LLM input
+      session.conversationHistory.addUserMessage(text);
+      await this.generateLLMResponse(ws, text);
+    }
+  }
+
+  /**
+   * Handle paint arena image generation
+   */
+  private async handlePaintArenaImageGeneration(
+    ws: WebSocket,
+    session: ClientSession,
+    prompt: string,
+    isEdit: boolean
+  ): Promise<void> {
+    if (!session.paintArena) return;
+
+    logger.info('🎨 Starting image generation', { prompt: prompt.substring(0, 50), isEdit });
+
+    // Update phase and notify client
+    session.paintArena.phase = 'generating';
+    session.paintArena.currentPrompt = prompt;
+
+    this.sendMessage(ws, {
+      type: 'response',
+      text: '',
+      speaker: 'agent',
+      paintArena: {
+        type: 'generation_started',
+        prompt,
+      },
+    });
+
+    try {
+      let result: { imageBase64: string; text?: string };
+
+      if (isEdit && session.paintArena.currentImageBase64) {
+        // Edit existing image
+        result = await this.paintArenaService.editImage(
+          prompt,
+          session.paintArena.currentImageBase64
+        );
+      } else {
+        // Generate new image
+        result = await this.paintArenaService.generateImage(prompt);
+      }
+
+      // Store the generated image
+      session.paintArena.currentImageBase64 = result.imageBase64;
+      session.paintArena.phase = 'viewing';
+
+      // Send the generated image to client
+      this.sendMessage(ws, {
+        type: 'response',
+        text: '',
+        speaker: 'agent',
+        paintArena: {
+          type: isEdit ? 'image_edited' : 'image_generated',
+          imageBase64: result.imageBase64,
+        },
+      });
+
+      // Send "do you like it" response
+      const postGenResponse = this.paintArenaService.getPostGenerationResponse();
+      session.paintArena.chatHistory.push({ role: 'assistant', content: postGenResponse });
+
+      this.sendMessage(ws, {
+        type: 'response',
+        text: postGenResponse,
+        speaker: 'agent',
+        isPartial: false,
+      });
+
+      // TTS the post-generation response
+      session.sentenceQueue.push(postGenResponse);
+      await this.processPaintArenaTTSQueue(ws, session);
+
+    } catch (error) {
+      logger.error(error, { context: 'paint_arena_image_generation' });
+      
+      session.paintArena.phase = session.paintArena.currentImageBase64 ? 'viewing' : 'asking';
+
+      this.sendMessage(ws, {
+        type: 'response',
+        text: '',
+        speaker: 'agent',
+        paintArena: {
+          type: 'generation_failed',
+          error: error instanceof Error ? error.message : 'Failed to generate image',
+        },
+      });
+
+      // Send error message via TTS
+      const errorResponse = "Oops, I couldn't create that image. Could you try describing it differently?";
+      session.paintArena.chatHistory.push({ role: 'assistant', content: errorResponse });
+
+      this.sendMessage(ws, {
+        type: 'response',
+        text: errorResponse,
+        speaker: 'agent',
+        isPartial: false,
+      });
+
+      session.sentenceQueue.push(errorResponse);
+      await this.processPaintArenaTTSQueue(ws, session);
+    }
+  }
+
+  /**
+   * Handle paint arena reset (new drawing)
+   */
+  private async handlePaintReset(ws: WebSocket, session: ClientSession): Promise<void> {
+    if (!session.paintArena) return;
+
+    logger.info('🔄 Resetting paint arena');
+
+    // Reset state
+    session.paintArena.phase = 'asking';
+    session.paintArena.currentPrompt = undefined;
+    session.paintArena.currentImageBase64 = undefined;
+    session.paintArena.chatHistory = [];
+
+    // Send greeting for new session
+    const greeting = "Alright, fresh canvas! What would you like to create this time?";
+    session.paintArena.chatHistory.push({ role: 'assistant', content: greeting });
+
+    this.sendMessage(ws, {
+      type: 'response',
+      text: greeting,
+      speaker: 'agent',
+      isPartial: false,
+    });
+
+    session.sentenceQueue.push(greeting);
+    await this.processPaintArenaTTSQueue(ws, session);
   }
 }

@@ -9,8 +9,9 @@ import { useTTSAudio } from '@/hooks/useTTSAudio';
 import { Message, IncomingMessage } from '@/types';
 import LandingScreen from '@/components/LandingScreen';
 import AgentCreationScreen, { loadSavedAgentConfig, clearSavedAgentConfig } from '@/components/AgentCreationScreen';
+import ArenaScreen from '@/components/ArenaScreen';
 
-type AppScreen = 'landing' | 'agent_creation' | 'agent';
+type AppScreen = 'landing' | 'agent_creation' | 'agent' | 'arena';
 
 interface AgentConfig {
   voiceId: string;
@@ -223,9 +224,9 @@ export default function VoiceAgentPage() {
   // ─── Landing flow ────────────────────────────────────────────────
   const handleNameSubmit = (name: string) => {
     setUserName(name);
-    // If we have a saved agent config, skip creation and go directly to agent
+    // If we have a saved agent config, skip creation and go directly to arena
     if (agentConfig) {
-      setScreen('agent');
+      setScreen('arena');
     } else {
       setScreen('agent_creation');
     }
@@ -234,7 +235,7 @@ export default function VoiceAgentPage() {
   // ─── Agent creation flow ────────────────────────────────────────
   const handleAgentCreationComplete = (config: AgentConfig) => {
     setAgentConfig(config);
-    setScreen('agent');
+    setScreen('arena');
   };
 
   // ─── Reconfigure agent ─────────────────────────────────────────
@@ -299,7 +300,17 @@ export default function VoiceAgentPage() {
     );
   }
 
-  // ─── Voice Agent Screen ──────────────────────────────────────────
+  // ─── Arena Screen (Banter, Puzzles, Paint) ─────────────────────────
+  if (screen === 'arena' && agentConfig) {
+    return (
+      <ArenaScreen
+        userName={userName}
+        agentConfig={agentConfig}
+      />
+    );
+  }
+
+  // ─── Voice Agent Screen (legacy, kept for backward compatibility) ──
   return (
     <main className="min-h-screen bg-void flex flex-col items-center justify-center p-4 sm:p-8">
       {/* Subtle ambient glow */}

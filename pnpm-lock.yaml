@@ -11,6 +11,9 @@ importers:
       '@cartesia/cartesia-js':
         specifier: ^2.2.9
         version: 2.2.9
+      '@google/generative-ai':
+        specifier: ^0.21.0
+        version: 0.21.0
       '@langchain/anthropic':
         specifier: ^0.3.0
         version: 0.3.34(@langchain/core@0.3.80(openai@4.104.0(ws@8.19.0)(zod@3.25.76)))(zod@3.25.76)
@@ -265,6 +268,10 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@google/generative-ai@0.21.0':
+    resolution: {integrity: sha512-7XhUbtnlkSEZK15kN3t+tzIMxsbKm/dSkKBFalj+20NvPKe1kBY7mR2P7vuijEn+f06z5+A8bVGKO0v39cr6Wg==}
+    engines: {node: '>=18.0.0'}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1601,6 +1608,8 @@ snapshots:
 
   '@esbuild/win32-x64@0.27.3':
     optional: true
+
+  '@google/generative-ai@0.21.0': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

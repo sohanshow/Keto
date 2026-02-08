@@ -26,10 +26,12 @@ export interface ClientSession {
   conversationHistory: ConversationHistory;
   /** Sentence queue for TTS - stored on session so we can clear it on interrupt */
   sentenceQueue: string[];
-  /** Mode: normal conversation or agent creation */
-  mode?: 'normal' | 'agent_creation';
+  /** Mode: normal conversation, agent creation, or paint arena */
+  mode?: 'normal' | 'agent_creation' | 'paint_arena';
   /** Agent creation state (only used in agent_creation mode) */
   agentCreation?: AgentCreationState;
+  /** Paint arena state (only used in paint_arena mode) */
+  paintArena?: PaintArenaState;
 }
 
 export interface Voice {
@@ -41,13 +43,14 @@ export interface Voice {
 }
 
 export interface WebSocketMessage {
-  type: 'start' | 'audio' | 'stop' | 'interrupt';
+  type: 'start' | 'audio' | 'stop' | 'interrupt' | 'text_input' | 'paint_reset';
   voiceId?: string;
   systemPrompt?: string;
   userName?: string;
   audio?: string;
-  mode?: 'normal' | 'agent_creation';
+  mode?: 'normal' | 'agent_creation' | 'paint_arena';
   voices?: Voice[];
+  text?: string; // For text input messages
 }
 
 export interface TranscriptMessage {
@@ -107,6 +110,28 @@ export interface AgentCreationMessage {
   agentCreation?: AgentCreationData;
 }
 
+export interface PaintArenaData {
+  type: 'generation_started' | 'image_generated' | 'image_edited' | 'generation_failed';
+  prompt?: string;
+  imageBase64?: string;
+  error?: string;
+}
+
+export interface PaintArenaMessage {
+  type: 'response';
+  text: string;
+  speaker: 'agent';
+  isPartial?: boolean;
+  paintArena?: PaintArenaData;
+}
+
+export interface PaintArenaState {
+  phase: 'asking' | 'generating' | 'viewing' | 'editing';
+  currentPrompt?: string;
+  currentImageBase64?: string;
+  chatHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
+}
+
 export type OutgoingMessage =
   | TranscriptMessage
   | ResponseMessage
@@ -115,4 +140,5 @@ export type OutgoingMessage =
   | StoppedMessage
   | TTSStoppedMessage
   | AudioChunkMessage
-  | AgentCreationMessage;
+  | AgentCreationMessage
+  | PaintArenaMessage;
