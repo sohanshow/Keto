@@ -15,6 +15,7 @@
   },
   "dependencies": {
     "@cartesia/cartesia-js": "^2.2.9",
+    "@clerk/nextjs": "^6.37.3",
     "@google/generative-ai": "^0.21.0",
     "@langchain/anthropic": "^0.3.0",
     "@langchain/core": "^0.3.13",

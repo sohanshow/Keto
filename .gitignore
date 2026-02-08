@@ -96,3 +96,6 @@ server/**/*.js
 *.pem
 *.key
 *.cert
+
+# clerk configuration (can include secrets)
+/.clerk/

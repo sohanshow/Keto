@@ -1,7 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { MessageSquare, Puzzle, Paintbrush } from 'lucide-react';
+import { MessageSquare, Puzzle, Paintbrush, Settings, LogOut } from 'lucide-react';
+import Link from 'next/link';
+import { SignOutButton } from '@clerk/nextjs';
 import PaintArena from './PaintArena';
 import BanterArena from './BanterArena';
 import PuzzleArena from './PuzzleArena';
@@ -43,9 +45,26 @@ export default function ArenaScreen({ userName, agentConfig }: ArenaScreenProps)
               <span className="text-white/20">|</span>
               <span className="text-white/40 text-sm">Hey, <span className="text-gold">{userName}</span></span>
             </div>
-            <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border border-white/5">
-              <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-white/60 text-xs">{agentConfig.voiceName}</span>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border border-white/5">
+                <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-white/60 text-xs">{agentConfig.voiceName}</span>
+              </div>
+              <Link
+                href="/settings"
+                className="p-2 rounded-lg bg-charcoal/50 border border-white/10 hover:bg-charcoal hover:border-gold/30 text-white/60 hover:text-gold transition-all duration-300"
+                title="Settings"
+              >
+                <Settings className="w-4 h-4" />
+              </Link>
+              <SignOutButton redirectUrl="/">
+                <button
+                  className="p-2 rounded-lg bg-charcoal/50 border border-white/10 hover:bg-red-500/10 hover:border-red-500/30 text-white/60 hover:text-red-400 transition-all duration-300"
+                  title="Sign Out"
+                >
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </SignOutButton>
             </div>
           </div>
 
