@@ -1,6 +1,6 @@
 # Keto Voice Agent
 
-A real-time AI voice assistant with natural conversation flow, featuring speech-to-text, language model responses, and text-to-speech synthesis.
+A real-time AI voice assistant with natural conversation flow, featuring speech-to-text, language model responses, text-to-speech synthesis, and interactive experiences.
 
 ![Voice Agent](https://img.shields.io/badge/Next.js-14-black) ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue) ![License](https://img.shields.io/badge/License-MIT-green)
 
@@ -11,6 +11,45 @@ A real-time AI voice assistant with natural conversation flow, featuring speech-
 - 🔊 **Text-to-Speech** - Cartesia for high-quality, low-latency voice synthesis
 - ⚡ **Interruption Handling** - Speak anytime to interrupt the AI
 - 🎨 **Beautiful UI** - Modern glassmorphism design with real-time audio visualization
+- 🔍 **Web Search** - Real-time web search powered by Exa for current events and news
+- 🧩 **Puzzle Mode** - 10 brain-teasing puzzles with hints and conversational solving
+- 🎨 **Paint Arena** - AI-powered image generation through voice commands
+
+## Arenas
+
+Keto features three interactive arenas:
+
+### 💬 Banter Arena
+The main conversational mode where you can chat naturally with your AI agent. Features:
+- Custom voice selection
+- Personality configuration (humor, formality, traits)
+- **Web Search** - Ask about current events, news, or anything requiring up-to-date information
+
+### 🧩 Puzzle Arena
+Challenge your brain with 10 mind-bending puzzles:
+- The Restaurant Tip Puzzle
+- The Man in the Elevator
+- The Fish Riddle
+- The Two Rope Puzzle
+- The Ball Weighing Puzzle
+- The Poisoned Drink Puzzle
+- The Light Switch Puzzle
+- The Two Door Puzzle
+- The 2-Sided Polygon
+- The Monty Hall Problem
+
+Features:
+- Progressive hints system
+- Conversational brainstorming with the AI
+- Track puzzles solved vs revealed
+- Skip puzzles or ask for answers
+
+### 🎨 Paint Arena
+Create AI-generated artwork through voice:
+- Describe what you want to create
+- AI generates images based on your description
+- Request edits and modifications
+- Download your creations
 
 ## Architecture
 
@@ -34,7 +73,14 @@ A real-time AI voice assistant with natural conversation flow, featuring speech-
 │  │ Deepgram    │  │ Claude       │  │ Cartesia             │    │
 │  │ STT         │──│ LLM          │──│ TTS                  │    │
 │  │             │  │              │  │                      │    │
-│  └─────────────┘  └──────────────┘  └──────────────────────┘    │
+│  └─────────────┘  └──────┬───────┘  └──────────────────────┘    │
+│                          │                                      │
+│            ┌─────────────┼─────────────┐                        │
+│            ▼             ▼             ▼                        │
+│      ┌──────────┐  ┌──────────┐  ┌──────────┐                   │
+│      │ Exa      │  │ Gemini   │  │ Puzzle   │                   │
+│      │ Search   │  │ Image    │  │ Service  │                   │
+│      └──────────┘  └──────────┘  └──────────┘                   │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -44,6 +90,8 @@ A real-time AI voice assistant with natural conversation flow, featuring speech-
 
 ```bash
 npm install
+# or
+pnpm install
 ```
 
 ### 2. Configure Environment
@@ -58,6 +106,8 @@ Edit `.env` and add your API keys:
 DEEPGRAM_API_KEY=your_deepgram_key
 ANTHROPIC_API_KEY=your_anthropic_key
 CARTESIA_API_KEY=your_cartesia_key
+GEMINI_API_KEY=your_gemini_key
+EXA_API_KEY=your_exa_key
 ```
 
 ### 3. Run Development Server
@@ -72,7 +122,7 @@ This starts both:
 
 ### 4. Open in Browser
 
-Navigate to [http://localhost:3000](http://localhost:3000) and click the microphone to start talking!
+Navigate to [http://localhost:3000](http://localhost:3000), enter your name, configure your agent, and start talking!
 
 ## Scripts
 
@@ -121,6 +171,8 @@ Set these environment variables on your server platform:
 - `DEEPGRAM_API_KEY`
 - `ANTHROPIC_API_KEY`
 - `CARTESIA_API_KEY`
+- `GEMINI_API_KEY`
+- `EXA_API_KEY`
 - `FRONTEND_URL` (your Vercel URL for CORS)
 
 ## Project Structure
@@ -132,20 +184,39 @@ keto/
 │   │   ├── page.tsx       # Main voice agent UI
 │   │   ├── layout.tsx     # Root layout
 │   │   └── globals.css    # Global styles
+│   ├── components/        # React components
+│   │   ├── ArenaScreen.tsx      # Arena tab navigation
+│   │   ├── BanterArena.tsx      # Main chat arena
+│   │   ├── PuzzleArena.tsx      # Puzzle solving arena
+│   │   ├── PaintArena.tsx       # Image generation arena
+│   │   ├── LandingScreen.tsx    # Name entry screen
+│   │   └── AgentCreationScreen.tsx  # Agent configuration
 │   ├── hooks/             # React hooks
 │   │   ├── useWebSocket.ts    # WebSocket connection
 │   │   ├── useAudioCapture.ts # Microphone recording
 │   │   ├── useVAD.ts          # Voice activity detection
 │   │   └── useTTSAudio.ts     # TTS audio playback
+│   ├── data/              # Static data
+│   │   └── voices.ts      # Available voice configurations
 │   └── types/             # TypeScript types
 ├── server/                # WebSocket server
 │   ├── index.ts          # Server entry point
 │   ├── websocket-handler.ts  # WebSocket logic
 │   ├── config.ts         # Configuration
+│   ├── data/             # Server data files
+│   │   ├── voices.json   # Voice configurations
+│   │   └── puzzles.json  # Puzzle definitions
+│   ├── stores/           # State management
+│   │   ├── conversation.store.ts  # Chat history
+│   │   └── prompt.store.ts        # System prompts
 │   └── services/         # External service integrations
-│       ├── deepgram.service.ts  # Speech-to-text
-│       ├── llm.service.ts       # Language model
-│       └── tts.service.ts       # Text-to-speech
+│       ├── deepgram.service.ts    # Speech-to-text
+│       ├── llm.service.ts         # Language model + tool detection
+│       ├── tts.service.ts         # Text-to-speech
+│       ├── exa.service.ts         # Web search
+│       ├── puzzle.service.ts      # Puzzle logic
+│       ├── paint-arena.service.ts # Image generation orchestration
+│       └── gemini-image.service.ts # Gemini image generation
 ├── package.json          # Dependencies and scripts
 ├── .env.example          # Environment template
 └── README.md
@@ -158,6 +229,8 @@ keto/
 | **Deepgram** | Speech-to-Text | [console.deepgram.com](https://console.deepgram.com) |
 | **Anthropic** | Language Model | [console.anthropic.com](https://console.anthropic.com) |
 | **Cartesia** | Text-to-Speech | [play.cartesia.ai](https://play.cartesia.ai) |
+| **Google Gemini** | Image Generation | [aistudio.google.com](https://aistudio.google.com) |
+| **Exa** | Web Search | [exa.ai](https://exa.ai) |
 
 ## Customization
 
@@ -191,6 +264,28 @@ this.llm = new ChatAnthropic({
 });
 ```
 
+### Add or Modify Puzzles
+
+Edit `server/data/puzzles.json` to add, remove, or modify puzzles:
+
+```json
+{
+  "puzzles": [
+    {
+      "id": 1,
+      "title": "Your Puzzle Title",
+      "question": "The puzzle question...",
+      "answer": "The answer explanation...",
+      "hints": [
+        "First hint",
+        "Second hint",
+        "Third hint"
+      ]
+    }
+  ]
+}
+```
+
 ## Troubleshooting
 
 ### Microphone not working
@@ -205,6 +300,14 @@ this.llm = new ChatAnthropic({
 ### No audio playback
 - Click somewhere on the page first (browsers require user interaction for audio)
 - Check browser console for audio context errors
+
+### Web search not working
+- Verify your `EXA_API_KEY` is set correctly
+- Check server logs for search-related errors
+
+### Puzzles not loading
+- Ensure `server/data/puzzles.json` exists and is valid JSON
+- Check server logs for puzzle service initialization errors
 
 ## License
 
