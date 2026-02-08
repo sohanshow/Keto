@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { MessageSquare, Puzzle, Paintbrush } from 'lucide-react';
 import PaintArena from './PaintArena';
 import BanterArena from './BanterArena';
+import PuzzleArena from './PuzzleArena';
 
 type ArenaTab = 'banter' | 'puzzles' | 'paint';
 
@@ -26,7 +27,7 @@ export default function ArenaScreen({ userName, agentConfig }: ArenaScreenProps)
 
   const tabs = [
     { id: 'banter' as const, label: 'Banter', icon: MessageSquare, disabled: false },
-    { id: 'puzzles' as const, label: 'Puzzles', icon: Puzzle, disabled: true },
+    { id: 'puzzles' as const, label: 'Puzzles', icon: Puzzle, disabled: false },
     { id: 'paint' as const, label: 'Paint', icon: Paintbrush, disabled: false },
   ];
 
@@ -114,13 +115,7 @@ export default function ArenaScreen({ userName, agentConfig }: ArenaScreenProps)
         )}
 
         {activeTab === 'puzzles' && (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center">
-              <Puzzle className="w-16 h-16 text-white/10 mx-auto mb-4" />
-              <h2 className="text-white/40 text-lg font-medium mb-2">Puzzles Arena</h2>
-              <p className="text-white/20 text-sm">Coming soon...</p>
-            </div>
-          </div>
+          <PuzzleArena userName={userName} agentConfig={agentConfig} />
         )}
 
         {activeTab === 'paint' && (

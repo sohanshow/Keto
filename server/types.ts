@@ -26,12 +26,14 @@ export interface ClientSession {
   conversationHistory: ConversationHistory;
   /** Sentence queue for TTS - stored on session so we can clear it on interrupt */
   sentenceQueue: string[];
-  /** Mode: normal conversation, agent creation, or paint arena */
-  mode?: 'normal' | 'agent_creation' | 'paint_arena';
+  /** Mode: normal conversation, agent creation, paint arena, or puzzle */
+  mode?: 'normal' | 'agent_creation' | 'paint_arena' | 'puzzle';
   /** Agent creation state (only used in agent_creation mode) */
   agentCreation?: AgentCreationState;
   /** Paint arena state (only used in paint_arena mode) */
   paintArena?: PaintArenaState;
+  /** Puzzle state (only used in puzzle mode) */
+  puzzle?: PuzzleState;
 }
 
 export interface Voice {
@@ -43,12 +45,12 @@ export interface Voice {
 }
 
 export interface WebSocketMessage {
-  type: 'start' | 'audio' | 'stop' | 'interrupt' | 'text_input' | 'paint_reset';
+  type: 'start' | 'audio' | 'stop' | 'interrupt' | 'text_input' | 'paint_reset' | 'puzzle_next' | 'puzzle_hint';
   voiceId?: string;
   systemPrompt?: string;
   userName?: string;
   audio?: string;
-  mode?: 'normal' | 'agent_creation' | 'paint_arena';
+  mode?: 'normal' | 'agent_creation' | 'paint_arena' | 'puzzle';
   voices?: Voice[];
   text?: string; // For text input messages
 }
@@ -132,6 +134,33 @@ export interface PaintArenaState {
   chatHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
 }
 
+export interface PuzzleState {
+  phase: 'intro' | 'asking' | 'discussing' | 'revealed' | 'complete';
+  currentPuzzleIndex: number;
+  hintsGiven: number;
+  chatHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
+  puzzlesSolved: number[];
+  puzzlesRevealed: number[];
+}
+
+export interface PuzzleData {
+  type: 'puzzle_started' | 'puzzle_correct' | 'puzzle_revealed' | 'next_puzzle' | 'puzzles_complete';
+  puzzleId?: number;
+  puzzleTitle?: string;
+  puzzleQuestion?: string;
+  totalPuzzles?: number;
+  puzzlesSolved?: number;
+  puzzlesRevealed?: number;
+}
+
+export interface PuzzleMessage {
+  type: 'response';
+  text: string;
+  speaker: 'agent';
+  isPartial?: boolean;
+  puzzle?: PuzzleData;
+}
+
 export type OutgoingMessage =
   | TranscriptMessage
   | ResponseMessage
@@ -141,4 +170,5 @@ export type OutgoingMessage =
   | TTSStoppedMessage
   | AudioChunkMessage
   | AgentCreationMessage
-  | PaintArenaMessage;
+  | PaintArenaMessage
+  | PuzzleMessage;

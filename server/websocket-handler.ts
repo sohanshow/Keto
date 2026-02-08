@@ -4,7 +4,8 @@ import { LLMService } from './services/llm.service.js';
 import { TTSService } from './services/tts.service.js';
 import { AgentCreationService } from './services/agent-creation.service.js';
 import { PaintArenaService } from './services/paint-arena.service.js';
-import { ClientSession, WebSocketMessage, OutgoingMessage, Voice, AgentCreationState, PaintArenaState } from './types.js';
+import { PuzzleService } from './services/puzzle.service.js';
+import { ClientSession, WebSocketMessage, OutgoingMessage, Voice, AgentCreationState, PaintArenaState, PuzzleState } from './types.js';
 import { logger } from './logger.js';
 import { SessionAbortManager } from './abort-controller.js';
 import { PromptStore } from './stores/prompt.store.js';
@@ -21,6 +22,7 @@ export class WebSocketHandler {
   private ttsService: TTSService;
   private agentCreationService: AgentCreationService;
   private paintArenaService: PaintArenaService;
+  private puzzleService: PuzzleService;
   private sessions: Map<WebSocket, ClientSession>;
   private promptStore: PromptStore;
   private conversationStore: ConversationStore;
@@ -31,6 +33,7 @@ export class WebSocketHandler {
     this.ttsService = new TTSService();
     this.agentCreationService = new AgentCreationService();
     this.paintArenaService = new PaintArenaService();
+    this.puzzleService = new PuzzleService();
     this.sessions = new Map();
     this.promptStore = new PromptStore();
     this.conversationStore = new ConversationStore();
@@ -106,6 +109,18 @@ export class WebSocketHandler {
       if (storedSession?.paintArena) {
         await this.handlePaintReset(ws, storedSession);
       }
+    } else if (data.type === 'puzzle_next') {
+      // Handle puzzle skip to next
+      const storedSession = this.sessions.get(ws);
+      if (storedSession?.puzzle) {
+        await this.handlePuzzleNext(ws, storedSession);
+      }
+    } else if (data.type === 'puzzle_hint') {
+      // Handle puzzle hint request
+      const storedSession = this.sessions.get(ws);
+      if (storedSession?.puzzle) {
+        await this.handlePuzzleHint(ws, storedSession);
+      }
     }
   }
 
@@ -114,7 +129,7 @@ export class WebSocketHandler {
     voiceId?: string,
     systemPrompt?: string,
     userName?: string,
-    mode?: 'normal' | 'agent_creation',
+    mode?: 'normal' | 'agent_creation' | 'paint_arena' | 'puzzle',
     voices?: Voice[]
   ): Promise<ClientSession> {
     logger.info('🎤 Starting voice session...', { userName, mode: mode || 'normal' });
@@ -172,6 +187,19 @@ export class WebSocketHandler {
       };
     }
 
+    // Initialize puzzle state if in puzzle mode
+    let puzzle: PuzzleState | undefined;
+    if (mode === 'puzzle') {
+      puzzle = {
+        phase: 'intro',
+        currentPuzzleIndex: 0,
+        hintsGiven: 0,
+        chatHistory: [],
+        puzzlesSolved: [],
+        puzzlesRevealed: [],
+      };
+    }
+
     const session: ClientSession = {
       id: sessionId,
       deepgramConnection: this.deepgramService.createFluxConnection(),
@@ -186,6 +214,7 @@ export class WebSocketHandler {
       mode: mode || 'normal',
       agentCreation,
       paintArena,
+      puzzle,
     };
 
     this.sessions.set(ws, session);
@@ -200,6 +229,11 @@ export class WebSocketHandler {
     // If in paint arena mode, send initial greeting
     if (mode === 'paint_arena') {
       this.sendPaintArenaGreeting(ws, session);
+    }
+
+    // If in puzzle mode, send initial greeting
+    if (mode === 'puzzle') {
+      this.sendPuzzleGreeting(ws, session);
     }
 
     return session;
@@ -404,6 +438,8 @@ export class WebSocketHandler {
           await this.handleAgentCreationInput(ws, session, transcriptText);
         } else if (session.mode === 'paint_arena') {
           await this.handlePaintArenaInput(ws, session, transcriptText);
+        } else if (session.mode === 'puzzle') {
+          await this.handlePuzzleInput(ws, session, transcriptText);
         } else {
           await this.generateLLMResponse(ws, transcriptText);
         }
@@ -432,6 +468,8 @@ export class WebSocketHandler {
           await this.handleAgentCreationInput(ws, session, transcriptText);
         } else if (session.mode === 'paint_arena') {
           await this.handlePaintArenaInput(ws, session, transcriptText);
+        } else if (session.mode === 'puzzle') {
+          await this.handlePuzzleInput(ws, session, transcriptText);
         } else {
           await this.generateLLMResponse(ws, transcriptText);
         }
@@ -1157,5 +1195,351 @@ export class WebSocketHandler {
 
     session.sentenceQueue.push(greeting);
     await this.processPaintArenaTTSQueue(ws, session);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PUZZLE MODE METHODS
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Send the initial greeting for puzzle mode
+   */
+  private async sendPuzzleGreeting(ws: WebSocket, session: ClientSession): Promise<void> {
+    if (!session.puzzle) return;
+
+    // Wait a moment for connection to be fully established
+    setTimeout(async () => {
+      const greeting = await this.puzzleService.generateInitialGreeting(
+        session.userName || 'there'
+      );
+
+      // Add to chat history
+      session.puzzle!.chatHistory.push({ role: 'assistant', content: greeting });
+
+      // Send the greeting text
+      this.sendMessage(ws, {
+        type: 'response',
+        text: greeting,
+        speaker: 'agent',
+        isPartial: false,
+      });
+
+      // TTS the greeting
+      session.sentenceQueue.push(greeting);
+      await this.processPuzzleTTSQueue(ws, session);
+
+      // After greeting, send the first puzzle
+      setTimeout(async () => {
+        const puzzleIntro = this.puzzleService.getCurrentPuzzleIntro(session.puzzle!);
+        session.puzzle!.chatHistory.push({ role: 'assistant', content: puzzleIntro });
+        session.puzzle!.phase = 'discussing';
+
+        const puzzle = this.puzzleService.getPuzzle(session.puzzle!.currentPuzzleIndex);
+
+        this.sendMessage(ws, {
+          type: 'response',
+          text: puzzleIntro,
+          speaker: 'agent',
+          isPartial: false,
+          puzzle: {
+            type: 'puzzle_started',
+            puzzleId: puzzle?.id,
+            puzzleTitle: puzzle?.title,
+            puzzleQuestion: puzzle?.question,
+            totalPuzzles: this.puzzleService.getPuzzles().length,
+          },
+        });
+
+        session.sentenceQueue.push(puzzleIntro);
+        await this.processPuzzleTTSQueue(ws, session);
+      }, 500);
+    }, 500);
+  }
+
+  /**
+   * Process TTS queue for puzzle mode
+   */
+  private async processPuzzleTTSQueue(ws: WebSocket, session: ClientSession): Promise<void> {
+    if (!session.puzzle) return;
+
+    while (session.sentenceQueue.length > 0 && !session.abortManager.getTTSController().isAborted()) {
+      const sentence = session.sentenceQueue.shift()!;
+
+      try {
+        const ttsWs = await this.getOrCreateTTSConnection(session);
+        const ttsController = session.abortManager.getTTSController();
+
+        const { readingPromise } = await this.ttsService.streamTTSOnConnection(
+          ttsWs,
+          sentence,
+          {
+            onAudioChunk: (audioChunk: Buffer) => {
+              this.sendMessage(ws, {
+                type: 'audio_chunk',
+                audio: audioChunk.toString('base64'),
+                format: 'pcm_f32le',
+                sampleRate: 22050,
+              });
+            },
+            onError: (error: Error) => {
+              if (!ttsController.isAborted()) {
+                logger.error(error, { context: 'puzzle_tts' });
+                session.ttsWebSocketReady = false;
+              }
+            },
+            voiceId: session.voiceId,
+          },
+          ttsController
+        );
+
+        await readingPromise;
+      } catch (error) {
+        if (!session.abortManager.getTTSController().isAborted()) {
+          logger.error(error, { context: 'puzzle_tts' });
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle user input during puzzle mode
+   */
+  private async handlePuzzleInput(
+    ws: WebSocket,
+    session: ClientSession,
+    transcript: string
+  ): Promise<void> {
+    if (!session.puzzle) {
+      logger.warn('⚠️ Puzzle input received but no puzzle state');
+      return;
+    }
+
+    if (session.isProcessingResponse) {
+      logger.warn('⚠️ Already processing puzzle response, skipping');
+      return;
+    }
+
+    session.isProcessingResponse = true;
+
+    try {
+      // Add user message to chat history
+      session.puzzle.chatHistory.push({ role: 'user', content: transcript });
+
+      // Process the input through puzzle service
+      const result = await this.puzzleService.processInput(
+        transcript,
+        session.puzzle,
+        session.userName || 'there'
+      );
+
+      // Add assistant response to chat history
+      session.puzzle.chatHistory.push({ role: 'assistant', content: result.response });
+
+      // Handle different actions
+      let puzzleData: any = undefined;
+
+      switch (result.action) {
+        case 'correct':
+          // User solved the puzzle!
+          session.puzzle.puzzlesSolved.push(session.puzzle.currentPuzzleIndex);
+          puzzleData = {
+            type: 'puzzle_correct',
+            puzzleId: this.puzzleService.getPuzzle(session.puzzle.currentPuzzleIndex)?.id,
+            puzzlesSolved: session.puzzle.puzzlesSolved.length,
+          };
+          break;
+
+        case 'reveal':
+          // Answer was revealed
+          session.puzzle.puzzlesRevealed.push(session.puzzle.currentPuzzleIndex);
+          session.puzzle.phase = 'revealed';
+          puzzleData = {
+            type: 'puzzle_revealed',
+            puzzleId: this.puzzleService.getPuzzle(session.puzzle.currentPuzzleIndex)?.id,
+            puzzlesRevealed: session.puzzle.puzzlesRevealed.length,
+          };
+          break;
+
+        case 'discuss':
+          // Still discussing, maybe give a hint
+          if (result.giveHint) {
+            session.puzzle.hintsGiven++;
+          }
+          break;
+
+        case 'next_puzzle':
+          // Move to next puzzle
+          session.puzzle.currentPuzzleIndex++;
+          session.puzzle.hintsGiven = 0;
+          session.puzzle.phase = 'discussing';
+          
+          const nextPuzzle = this.puzzleService.getPuzzle(session.puzzle.currentPuzzleIndex);
+          if (nextPuzzle) {
+            puzzleData = {
+              type: 'next_puzzle',
+              puzzleId: nextPuzzle.id,
+              puzzleTitle: nextPuzzle.title,
+              puzzleQuestion: nextPuzzle.question,
+              totalPuzzles: this.puzzleService.getPuzzles().length,
+            };
+          }
+          break;
+
+        case 'complete':
+          // All puzzles done
+          session.puzzle.phase = 'complete';
+          puzzleData = {
+            type: 'puzzles_complete',
+            puzzlesSolved: session.puzzle.puzzlesSolved.length,
+            puzzlesRevealed: session.puzzle.puzzlesRevealed.length,
+            totalPuzzles: this.puzzleService.getPuzzles().length,
+          };
+          break;
+      }
+
+      // Send the response
+      this.sendMessage(ws, {
+        type: 'response',
+        text: result.response,
+        speaker: 'agent',
+        isPartial: false,
+        puzzle: puzzleData,
+      });
+
+      // TTS the response
+      session.sentenceQueue.push(result.response);
+      await this.processPuzzleTTSQueue(ws, session);
+
+      // If moving to next puzzle, send the puzzle intro after a delay
+      if (result.action === 'next_puzzle' || result.action === 'correct' || result.action === 'reveal') {
+        // For correct/reveal, we need to also move to next after the response
+        if (result.action === 'correct' || result.action === 'reveal') {
+          setTimeout(async () => {
+            if (!session.puzzle) return;
+            
+            session.puzzle.currentPuzzleIndex++;
+            session.puzzle.hintsGiven = 0;
+            session.puzzle.phase = 'discussing';
+
+            const puzzleIntro = this.puzzleService.getNextPuzzleIntro(session.puzzle, session.userName || 'there');
+            session.puzzle.chatHistory.push({ role: 'assistant', content: puzzleIntro });
+
+            const puzzle = this.puzzleService.getPuzzle(session.puzzle.currentPuzzleIndex);
+            
+            this.sendMessage(ws, {
+              type: 'response',
+              text: puzzleIntro,
+              speaker: 'agent',
+              isPartial: false,
+              puzzle: puzzle ? {
+                type: 'next_puzzle',
+                puzzleId: puzzle.id,
+                puzzleTitle: puzzle.title,
+                puzzleQuestion: puzzle.question,
+                totalPuzzles: this.puzzleService.getPuzzles().length,
+              } : {
+                type: 'puzzles_complete',
+                puzzlesSolved: session.puzzle.puzzlesSolved.length,
+                puzzlesRevealed: session.puzzle.puzzlesRevealed.length,
+                totalPuzzles: this.puzzleService.getPuzzles().length,
+              },
+            });
+
+            session.sentenceQueue.push(puzzleIntro);
+            await this.processPuzzleTTSQueue(ws, session);
+          }, 1500);
+        }
+      }
+    } catch (error) {
+      logger.error(error, { context: 'puzzle_input' });
+      this.sendMessage(ws, {
+        type: 'error',
+        message: 'Failed to process puzzle input',
+      });
+    } finally {
+      session.isProcessingResponse = false;
+    }
+  }
+
+  /**
+   * Handle puzzle skip to next
+   */
+  private async handlePuzzleNext(ws: WebSocket, session: ClientSession): Promise<void> {
+    if (!session.puzzle) return;
+
+    logger.info('⏭️ Skipping to next puzzle');
+
+    // Mark current as revealed (skipped)
+    session.puzzle.puzzlesRevealed.push(session.puzzle.currentPuzzleIndex);
+    session.puzzle.currentPuzzleIndex++;
+    session.puzzle.hintsGiven = 0;
+    session.puzzle.phase = 'discussing';
+
+    const puzzleIntro = this.puzzleService.getNextPuzzleIntro(session.puzzle, session.userName || 'there');
+    session.puzzle.chatHistory.push({ role: 'assistant', content: puzzleIntro });
+
+    const puzzle = this.puzzleService.getPuzzle(session.puzzle.currentPuzzleIndex);
+
+    this.sendMessage(ws, {
+      type: 'response',
+      text: puzzleIntro,
+      speaker: 'agent',
+      isPartial: false,
+      puzzle: puzzle ? {
+        type: 'next_puzzle',
+        puzzleId: puzzle.id,
+        puzzleTitle: puzzle.title,
+        puzzleQuestion: puzzle.question,
+        totalPuzzles: this.puzzleService.getPuzzles().length,
+      } : {
+        type: 'puzzles_complete',
+        puzzlesSolved: session.puzzle.puzzlesSolved.length,
+        puzzlesRevealed: session.puzzle.puzzlesRevealed.length,
+        totalPuzzles: this.puzzleService.getPuzzles().length,
+      },
+    });
+
+    session.sentenceQueue.push(puzzleIntro);
+    await this.processPuzzleTTSQueue(ws, session);
+  }
+
+  /**
+   * Handle puzzle hint request
+   */
+  private async handlePuzzleHint(ws: WebSocket, session: ClientSession): Promise<void> {
+    if (!session.puzzle) return;
+
+    logger.info('💡 Requesting puzzle hint');
+
+    const hint = this.puzzleService.getHint(session.puzzle);
+
+    if (hint) {
+      session.puzzle.hintsGiven++;
+      const hintResponse = `Here's a hint: ${hint}`;
+      session.puzzle.chatHistory.push({ role: 'assistant', content: hintResponse });
+
+      this.sendMessage(ws, {
+        type: 'response',
+        text: hintResponse,
+        speaker: 'agent',
+        isPartial: false,
+      });
+
+      session.sentenceQueue.push(hintResponse);
+      await this.processPuzzleTTSQueue(ws, session);
+    } else {
+      const noMoreHints = "I've given you all the hints I have for this one. Want me to reveal the answer, or do you want to keep trying?";
+      session.puzzle.chatHistory.push({ role: 'assistant', content: noMoreHints });
+
+      this.sendMessage(ws, {
+        type: 'response',
+        text: noMoreHints,
+        speaker: 'agent',
+        isPartial: false,
+      });
+
+      session.sentenceQueue.push(noMoreHints);
+      await this.processPuzzleTTSQueue(ws, session);
+    }
   }
 }

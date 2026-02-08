@@ -15,12 +15,12 @@ export interface Voice {
 }
 
 export interface WebSocketMessage {
-  type: 'start' | 'audio' | 'stop' | 'interrupt' | 'text_input' | 'paint_reset';
+  type: 'start' | 'audio' | 'stop' | 'interrupt' | 'text_input' | 'paint_reset' | 'puzzle_next' | 'puzzle_hint';
   voiceId?: string;
   systemPrompt?: string;
   userName?: string;
   audio?: string;
-  mode?: 'normal' | 'agent_creation' | 'paint_arena';
+  mode?: 'normal' | 'agent_creation' | 'paint_arena' | 'puzzle';
   voices?: Voice[];
   text?: string;
 }
@@ -43,6 +43,16 @@ export interface PaintArenaData {
   error?: string;
 }
 
+export interface PuzzleData {
+  type: 'puzzle_started' | 'puzzle_correct' | 'puzzle_revealed' | 'next_puzzle' | 'puzzles_complete';
+  puzzleId?: number;
+  puzzleTitle?: string;
+  puzzleQuestion?: string;
+  totalPuzzles?: number;
+  puzzlesSolved?: number;
+  puzzlesRevealed?: number;
+}
+
 export interface IncomingMessage {
   type: 'ready' | 'transcript' | 'response' | 'error' | 'stopped' | 'tts_stopped' | 'audio_chunk';
   transcript?: string;
@@ -55,4 +65,5 @@ export interface IncomingMessage {
   sampleRate?: number;
   agentCreation?: AgentCreationData;
   paintArena?: PaintArenaData;
+  puzzle?: PuzzleData;
 }
