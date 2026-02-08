@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Mic, MicOff, Volume2, MessageSquare, Zap } from 'lucide-react';
+import { Mic, MicOff, Volume2, MessageSquare, Zap, Globe, Search } from 'lucide-react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAudioCapture } from '@/hooks/useAudioCapture';
 import { useVAD } from '@/hooks/useVAD';
@@ -31,6 +31,7 @@ export default function BanterArena({ userName, agentConfig }: BanterArenaProps)
   const [currentAgentText, setCurrentAgentText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [isSearching, setIsSearching] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
@@ -120,6 +121,15 @@ export default function BanterArena({ userName, agentConfig }: BanterArenaProps)
         console.error('❌ Server error:', data.message);
         setError(data.message || 'Unknown error');
         break;
+    }
+
+    // Handle tool call status
+    if (data.toolCall) {
+      if (data.toolCall.status === 'searching') {
+        setIsSearching(true);
+      } else if (data.toolCall.status === 'complete') {
+        setIsSearching(false);
+      }
     }
   }, [queueAudioChunk, stopAudio, resetStopFlag]);
 
@@ -319,6 +329,23 @@ export default function BanterArena({ userName, agentConfig }: BanterArenaProps)
         >
           <Volume2 className="w-3 h-3" />
           <span className="text-xs font-medium">{isPlaying() ? 'Playing' : 'Silent'}</span>
+        </div>
+        <div
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border ${
+            isSearching ? 'border-blue-400/30 text-blue-400' : 'border-emerald-500/20 text-emerald-400/80'
+          }`}
+        >
+          {isSearching ? (
+            <>
+              <Search className="w-3 h-3 animate-pulse" />
+              <span className="text-xs font-medium">Searching...</span>
+            </>
+          ) : (
+            <>
+              <Globe className="w-3 h-3" />
+              <span className="text-xs font-medium">Web Search</span>
+            </>
+          )}
         </div>
       </div>
 

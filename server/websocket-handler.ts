@@ -612,7 +612,7 @@ export class WebSocketHandler {
     }
   }
 
-  private async generateLLMResponse(ws: WebSocket, transcript: string): Promise<void> {
+  private async generateLLMResponse(ws: WebSocket, transcript: string, searchContext?: string): Promise<void> {
     const session = this.sessions.get(ws);
     if (!session) return;
 
@@ -645,6 +645,7 @@ export class WebSocketHandler {
       await this.llmService.streamResponse(transcript, {
         systemPrompt: session.systemPrompt,
         conversationHistory: session.conversationHistory,
+        searchContext,
         onSentence: (sentence: string) => {
           if (session.abortManager.getLLMController().isAborted()) return;
 
@@ -689,6 +690,48 @@ export class WebSocketHandler {
             message: 'Failed to generate response',
           });
           session.isProcessingResponse = false;
+        },
+        onToolCall: async (tool: string, query: string, filler: string) => {
+          if (tool === 'web_search') {
+            logger.info('🔍 Web search tool called', { query });
+
+            // Send the filler message and TTS it
+            this.sendMessage(ws, {
+              type: 'response',
+              text: filler,
+              isPartial: false,
+              speaker: 'agent',
+              toolCall: { tool: 'web_search', status: 'searching' },
+            } as any);
+
+            session.sentenceQueue.push(filler);
+            processNextSentence().catch((error) => logger.error(error, { context: 'process_tts_queue' }));
+
+            // Perform the search
+            try {
+              const searchResults = await this.llmService.performWebSearch(query);
+              
+              // Send search complete event
+              this.sendMessage(ws, {
+                type: 'response',
+                text: '',
+                speaker: 'agent',
+                toolCall: { tool: 'web_search', status: 'complete' },
+              } as any);
+
+              // Reset processing flag so we can generate the follow-up response
+              session.isProcessingResponse = false;
+
+              // Generate response with search context
+              await this.generateLLMResponse(ws, transcript, searchResults);
+            } catch (error) {
+              logger.error(error, { context: 'web_search' });
+              session.isProcessingResponse = false;
+              
+              // Fall back to regular response without search
+              await this.generateLLMResponse(ws, transcript, 'Web search failed. Please answer based on your knowledge.');
+            }
+          }
         },
       });
     } catch (error) {

@@ -53,6 +53,11 @@ export interface PuzzleData {
   puzzlesRevealed?: number;
 }
 
+export interface ToolCallData {
+  tool: 'web_search';
+  status: 'searching' | 'complete';
+}
+
 export interface IncomingMessage {
   type: 'ready' | 'transcript' | 'response' | 'error' | 'stopped' | 'tts_stopped' | 'audio_chunk';
   transcript?: string;
@@ -66,4 +71,5 @@ export interface IncomingMessage {
   agentCreation?: AgentCreationData;
   paintArena?: PaintArenaData;
   puzzle?: PuzzleData;
+  toolCall?: ToolCallData;
 }
