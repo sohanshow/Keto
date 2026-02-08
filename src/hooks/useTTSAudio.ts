@@ -1,8 +1,14 @@
 import { useRef, useCallback } from 'react';
 
 /**
- * Hook to handle TTS audio playback from streaming audio chunks
- * Converts PCM_F32LE audio chunks to playable audio
+ * Hook to handle TTS audio playback from streaming audio chunks.
+ * Converts PCM_F32LE audio chunks to playable audio via the Web Audio API.
+ *
+ * Interrupt-safe design:
+ *   - stopAudio() sets isStoppedRef = true, disconnects + stops all sources,
+ *     and clears the queue. Any late-arriving chunks are silently dropped.
+ *   - resetStopFlag() sets isStoppedRef = false so new audio can be queued
+ *     again (called when the first audio_chunk arrives after an interruption).
  */
 export function useTTSAudio() {
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -14,7 +20,7 @@ export function useTTSAudio() {
   const isStoppedRef = useRef(false);
   const gainNodeRef = useRef<GainNode | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const dataArrayRef = useRef<Uint8Array | null>(null);
+  const dataArrayRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
 
   const getAudioContext = useCallback((): AudioContext => {
     if (!audioContextRef.current) {
@@ -68,6 +74,9 @@ export function useTTSAudio() {
 
     let scheduledCount = 0;
     while (audioQueueRef.current.length > 0) {
+      // If stopped mid-scheduling, bail out
+      if (isStoppedRef.current) break;
+
       const float32Array = audioQueueRef.current.shift()!;
       const audioBuffer = audioContext.createBuffer(1, float32Array.length, sampleRate);
       const channelData = audioBuffer.getChannelData(0);
@@ -107,6 +116,9 @@ export function useTTSAudio() {
       }
 
       const checkForMore = () => {
+        // If stopped, don't reschedule
+        if (isStoppedRef.current) return;
+
         const currentTime = audioContext.currentTime;
 
         if (audioQueueRef.current.length > 0) {
@@ -139,6 +151,8 @@ export function useTTSAudio() {
 
   const queueAudioChunk = useCallback(
     async (audioData: string, sampleRate: number = 22050) => {
+      // If we've been stopped (interrupted), silently drop this chunk.
+      // The stop flag will be reset by resetStopFlag() when recovery happens.
       if (isStoppedRef.current) {
         return;
       }
@@ -165,33 +179,48 @@ export function useTTSAudio() {
     [getAudioContext, playQueuedAudio]
   );
 
+  /**
+   * Immediately stop all audio playback and clear the queue.
+   * Sets isStoppedRef = true so any late-arriving chunks are dropped.
+   */
   const stopAudio = useCallback(() => {
     console.log(`🛑 Stopping ${activeSourcesRef.current.length} active audio sources`);
 
+    // Mark as stopped to prevent new chunks from being queued
     isStoppedRef.current = true;
 
+    // Stop and disconnect all active audio sources immediately.
+    // disconnect() first prevents scheduled-but-not-yet-playing sources
+    // from ever producing output; stop(0) halts currently-playing ones.
     activeSourcesRef.current.forEach((source) => {
       try {
         source.disconnect();
         source.stop(0);
       } catch {
-        // Expected for sources that haven't started
+        // Errors are expected for sources that haven't started yet —
+        // disconnect() will still prevent them from playing.
       }
     });
     activeSourcesRef.current = [];
 
+    // Clear the queue
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     nextStartTimeRef.current = 0;
 
+    // Clear monitoring timeout
     if (checkTimeoutRef.current) {
       clearTimeout(checkTimeoutRef.current);
       checkTimeoutRef.current = null;
     }
 
-    console.log('🛑 TTS audio stopped');
+    console.log('🛑 TTS audio stopped and queue cleared');
   }, []);
 
+  /**
+   * Reset the stop flag so new audio chunks can be queued again.
+   * Called when the first audio_chunk arrives after an interruption.
+   */
   const resetStopFlag = useCallback(() => {
     isStoppedRef.current = false;
   }, []);

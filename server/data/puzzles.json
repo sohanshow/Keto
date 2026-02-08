@@ -1,0 +1,114 @@
+{
+  "puzzles": [
+    {
+      "id": 1,
+      "title": "The Restaurant Tip Puzzle",
+      "question": "A meal costs 97 euros. You pay 100 euros, get 3 euros back, and tip 2 euros. But your spending is confusingly calculated. What's the real expense?",
+      "answer": "You paid 98 euros – 97 euros for food and 1 euro for the tip.",
+      "hints": [
+        "Think about what actually left your wallet permanently.",
+        "The change you got back is yours to keep or spend.",
+        "Don't add up the tip twice!"
+      ]
+    },
+    {
+      "id": 2,
+      "title": "The Man in the Elevator Puzzle",
+      "question": "A man lives on the 10th floor but only takes the elevator to the 7th floor and walks up the remaining 3 floors, unless it's raining. Why?",
+      "answer": "He's short and can only reach the 7th-floor button. When it's raining, he uses his umbrella to press the 10th-floor button.",
+      "hints": [
+        "Think about what physical limitation might prevent him from using the elevator fully.",
+        "What does rain have to do with reaching higher buttons?",
+        "He brings something with him when it rains..."
+      ]
+    },
+    {
+      "id": 3,
+      "title": "The Fish Riddle",
+      "question": "A fish's head is 3 centimeters long. Its tail is the same length as the head plus half the body. The body is as long as the head and tail together. How long is the fish?",
+      "answer": "24 centimeters. The head is 3 cm, the body is 12 cm, and the tail is 9 cm.",
+      "hints": [
+        "Try setting up the equations: Head = 3, Tail = Head + Body/2, Body = Head + Tail",
+        "If Body = Head + Tail, and Tail = Head + Body/2, you can substitute...",
+        "Body = 3 + (3 + Body/2), solve for Body first!"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "The Two Rope Puzzle",
+      "question": "You have two ropes and a lighter. Each rope takes exactly one hour to burn completely, but they don't burn evenly. How do you measure exactly 45 minutes?",
+      "answer": "Light both ends of one rope and one end of the other rope simultaneously. When the first rope burns out completely (30 minutes), light the other end of the second rope. When it burns out, exactly 45 minutes have passed.",
+      "hints": [
+        "Lighting a rope from both ends makes it burn in half the time.",
+        "You can light the second end of a rope at any point...",
+        "30 minutes plus half of the remaining time equals..."
+      ]
+    },
+    {
+      "id": 5,
+      "title": "The Ball Weighing Puzzle",
+      "question": "You have 9 balls, all identical except one that's heavier. You have a balance scale and can only use it twice. How do you find the heavier ball?",
+      "answer": "Divide the balls into three groups of three. Weigh two groups against each other. If they're equal, the heavy ball is in the third group. If not, it's in the heavier group. Then weigh two balls from that group – if equal, the third is heavy; if not, the heavier one is obvious.",
+      "hints": [
+        "Think about dividing into groups of 3, not 2.",
+        "Each weighing eliminates two-thirds of the possibilities.",
+        "The balance can tell you three things: left heavy, right heavy, or equal."
+      ]
+    },
+    {
+      "id": 6,
+      "title": "The Poisoned Drink Puzzle",
+      "question": "Five glasses are placed in a row. The first three are filled with water, and the last two with poison. By only moving one glass, how do you make it so no two glasses with water are next to each other?",
+      "answer": "Pour the water from the second glass into the fourth glass (which has poison), then place the now-empty second glass back. Now the arrangement is: Water, Empty, Water, Mixed, Poison – no two water glasses are adjacent.",
+      "hints": [
+        "You can pour the contents, not just move the glass position.",
+        "Think about what 'moving one glass' could mean creatively.",
+        "The second glass is key..."
+      ]
+    },
+    {
+      "id": 7,
+      "title": "The Light Switch Puzzle",
+      "question": "You're outside a closed room with three light switches. Only one controls a light bulb inside the room. You can flip the switches as much as you want, but you can only enter the room once. How do you figure out which switch controls the light?",
+      "answer": "Turn on switch 1 and wait a few minutes. Then turn it off and turn on switch 2. Enter the room. If the bulb is on, it's switch 2. If it's off but warm, it's switch 1. If it's off and cold, it's switch 3.",
+      "hints": [
+        "Light bulbs don't just produce light...",
+        "What happens to a bulb that's been on for a while?",
+        "You can use more than just your eyes to check the bulb."
+      ]
+    },
+    {
+      "id": 8,
+      "title": "The Two Door Puzzle",
+      "question": "You're in a room with two doors. One leads to freedom, the other to doom. Two guards know which door is which. One always tells the truth, the other always lies. You can ask only one question to one guard. What do you ask?",
+      "answer": "Ask either guard: 'If I asked the other guard which door leads to freedom, what would they say?' Then choose the opposite door. Both guards will point to the doom door – the liar lies about what the truth-teller would say, and the truth-teller truthfully reports the liar's lie.",
+      "hints": [
+        "You need a question that gives the same answer regardless of who you ask.",
+        "What if you ask about what the OTHER guard would say?",
+        "Double negatives can work in your favor..."
+      ]
+    },
+    {
+      "id": 9,
+      "title": "The 2-Sided Polygon",
+      "question": "Can you draw a polygon with only 2 sides and 2 angles of 90 degrees?",
+      "answer": "Yes, if you draw it on a sphere! On a curved surface like Earth, you can draw a shape with two 90-degree angles – imagine starting at the North Pole, going down to the equator, turning 90 degrees, walking along the equator, then turning 90 degrees back up to the pole.",
+      "hints": [
+        "Think outside the flat paper...",
+        "What if the surface you're drawing on isn't flat?",
+        "Consider the geometry on a globe or sphere."
+      ]
+    },
+    {
+      "id": 10,
+      "title": "The Three Doors Puzzle (Monty Hall)",
+      "question": "You're on a game show with three doors. Behind one is a car; the others hide goats. You pick a door, and the host (who knows what's behind each) opens another door to reveal a goat. Should you switch your choice to the remaining door?",
+      "answer": "Yes, you should always switch! Switching gives you a 2/3 chance of winning, while staying gives you only a 1/3 chance. When you first picked, you had a 1/3 chance of being right. The host revealing a goat doesn't change that – it just concentrates the remaining 2/3 probability onto the other unopened door.",
+      "hints": [
+        "Your initial choice had a 1/3 chance of being correct.",
+        "The host's action is not random – they always reveal a goat.",
+        "Think about what happens if you picked wrong initially (2/3 of the time)..."
+      ]
+    }
+  ]
+}

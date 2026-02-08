@@ -1,43 +1,28 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Mic, MicOff, Volume2, MessageSquare, Zap, Settings2 } from 'lucide-react';
+import { Mic, MicOff, Volume2, MessageSquare, Zap, Globe, Search } from 'lucide-react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAudioCapture } from '@/hooks/useAudioCapture';
 import { useVAD } from '@/hooks/useVAD';
 import { useTTSAudio } from '@/hooks/useTTSAudio';
 import { Message, IncomingMessage } from '@/types';
-import LandingScreen from '@/components/LandingScreen';
-import AgentCreationScreen, { loadSavedAgentConfig, clearSavedAgentConfig } from '@/components/AgentCreationScreen';
-import ArenaScreen from '@/components/ArenaScreen';
 
-type AppScreen = 'landing' | 'agent_creation' | 'agent' | 'arena';
-
-interface AgentConfig {
-  voiceId: string;
-  voiceName: string;
-  systemPrompt: string;
-  personality: {
-    humor: number;
-    formality: number;
-    traits: string[];
+interface BanterArenaProps {
+  userName: string;
+  agentConfig: {
+    voiceId: string;
+    voiceName: string;
+    systemPrompt: string;
+    personality: {
+      humor: number;
+      formality: number;
+      traits: string[];
+    };
   };
 }
 
-export default function VoiceAgentPage() {
-  // ─── App-level state ─────────────────────────────────────────────
-  const [screen, setScreen] = useState<AppScreen>('landing');
-  const [userName, setUserName] = useState('');
-  const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
-
-  // Check for saved agent config on mount
-  useEffect(() => {
-    const saved = loadSavedAgentConfig();
-    if (saved) {
-      setAgentConfig(saved);
-    }
-  }, []);
-
+export default function BanterArena({ userName, agentConfig }: BanterArenaProps) {
   // ─── Voice agent state ───────────────────────────────────────────
   const [isActive, setIsActive] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -46,29 +31,25 @@ export default function VoiceAgentPage() {
   const [currentAgentText, setCurrentAgentText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
-  
+  const [isSearching, setIsSearching] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const animationFrameRef = useRef<number | null>(null);
-  
+
   // Use refs to avoid stale closure issues in callbacks
   const isActiveRef = useRef(false);
   const isReadyRef = useRef(false);
-  const userNameRef = useRef('');
   // Tracks whether we interrupted TTS — used for recovery when new audio arrives
   const hasInterruptedRef = useRef(false);
-  
+
   // Keep refs in sync with state
   useEffect(() => {
     isActiveRef.current = isActive;
   }, [isActive]);
-  
+
   useEffect(() => {
     isReadyRef.current = isReady;
   }, [isReady]);
-
-  useEffect(() => {
-    userNameRef.current = userName;
-  }, [userName]);
 
   const { queueAudioChunk, stopAudio, resetStopFlag, getAudioLevel, isPlaying } = useTTSAudio();
 
@@ -115,25 +96,17 @@ export default function VoiceAgentPage() {
         break;
 
       case 'audio_chunk':
-        // Handle streaming TTS audio chunks
         if (data.audio && data.sampleRate) {
-          // ── Interrupt recovery ──
-          // After an interruption, isStoppedRef is true (set by stopAudio).
-          // We need to reset it when the FIRST new audio chunk arrives so
-          // the new response can actually be heard.
           if (hasInterruptedRef.current) {
             console.log('📦 New audio after interruption — resetting for new playback');
             hasInterruptedRef.current = false;
-            resetStopFlag(); // sets isStoppedRef = false → audio can be queued again
+            resetStopFlag();
           }
-
           queueAudioChunk(data.audio, data.sampleRate);
         }
         break;
 
       case 'tts_stopped':
-        // Backend confirmed abort — second safety net to kill any audio
-        // that arrived between the client-side stopAudio() and backend abort.
         console.log('🛑 TTS stopped by server');
         stopAudio();
         break;
@@ -148,6 +121,15 @@ export default function VoiceAgentPage() {
         console.error('❌ Server error:', data.message);
         setError(data.message || 'Unknown error');
         break;
+    }
+
+    // Handle tool call status
+    if (data.toolCall) {
+      if (data.toolCall.status === 'searching') {
+        setIsSearching(true);
+      } else if (data.toolCall.status === 'complete') {
+        setIsSearching(false);
+      }
     }
   }, [queueAudioChunk, stopAudio, resetStopFlag]);
 
@@ -166,25 +148,13 @@ export default function VoiceAgentPage() {
   const { startRecording, stopRecording } = useAudioCapture(onAudioChunk);
 
   // ─── VAD: Handle user interruptions ─────────────────────────────
-  // When Silero VAD detects speech while TTS is playing, we:
-  //   1. Mark that we interrupted (so audio_chunk recovery knows)
-  //   2. Stop TTS audio playback immediately (client-side)
-  //   3. Send interrupt message to backend to abort LLM + TTS streams
   const handleSpeechStart = useCallback(() => {
-    // Guard: only interrupt when we're in an active recording session
     if (!isActiveRef.current) return;
 
-    // Only interrupt if TTS is actually playing — otherwise the user
-    // is just speaking normally (e.g. giving a new utterance).
     if (isPlaying()) {
       console.log('🗣️ User started speaking — stopping TTS and sending interrupt');
       hasInterruptedRef.current = true;
-
-      // Stop TTS audio playback immediately (client-side) — clears queue
-      // and sets isStoppedRef = true so late-arriving chunks are dropped
       stopAudio();
-
-      // Tell backend to abort TTS/LLM streams
       sendMessage({ type: 'interrupt' });
     }
   }, [stopAudio, sendMessage, isPlaying]);
@@ -221,46 +191,20 @@ export default function VoiceAgentPage() {
     };
   }, [isActive, getAudioLevel, isPlaying]);
 
-  // ─── Landing flow ────────────────────────────────────────────────
-  const handleNameSubmit = (name: string) => {
-    setUserName(name);
-    // If we have a saved agent config, skip creation and go directly to arena
-    if (agentConfig) {
-      setScreen('arena');
-    } else {
-      setScreen('agent_creation');
-    }
-  };
-
-  // ─── Agent creation flow ────────────────────────────────────────
-  const handleAgentCreationComplete = (config: AgentConfig) => {
-    setAgentConfig(config);
-    setScreen('arena');
-  };
-
-  // ─── Reconfigure agent ─────────────────────────────────────────
-  const handleReconfigureAgent = () => {
-    // Clear saved config and go back to creation
-    clearSavedAgentConfig();
-    setAgentConfig(null);
-    setMessages([]);
-    setScreen('agent_creation');
-  };
-
   // ─── Voice session controls ──────────────────────────────────────
   const handleStart = async () => {
     try {
       setError(null);
       hasInterruptedRef.current = false;
       resetStopFlag();
-      
+
       await connect();
       await startRecording();
       await startVAD();
-      
+
       // Send start message with the user's name and agent config
-      sendMessage({ 
-        type: 'start', 
+      sendMessage({
+        type: 'start',
         userName,
         voiceId: agentConfig?.voiceId,
         systemPrompt: agentConfig?.systemPrompt,
@@ -285,102 +229,80 @@ export default function VoiceAgentPage() {
     hasInterruptedRef.current = false;
   };
 
-  // ─── Landing Screen ──────────────────────────────────────────────
-  if (screen === 'landing') {
-    return <LandingScreen onNameSubmit={handleNameSubmit} />;
-  }
+  // ─── Auto-start on mount ──────────────────────────────────────────
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (!isActive) {
+        handleStart();
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ─── Agent Creation Screen ──────────────────────────────────────
-  if (screen === 'agent_creation') {
-    return (
-      <AgentCreationScreen 
-        userName={userName} 
-        onComplete={handleAgentCreationComplete} 
-      />
-    );
-  }
+  // ─── Cleanup on unmount ───────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (isActiveRef.current) {
+        stopAudio();
+        disconnect();
+      }
+    };
+  }, [stopAudio, disconnect]);
 
-  // ─── Arena Screen (Banter, Puzzles, Paint) ─────────────────────────
-  if (screen === 'arena' && agentConfig) {
-    return (
-      <ArenaScreen
-        userName={userName}
-        agentConfig={agentConfig}
-      />
-    );
-  }
-
-  // ─── Voice Agent Screen (legacy, kept for backward compatibility) ──
   return (
-    <main className="min-h-screen bg-void flex flex-col items-center justify-center p-4 sm:p-8">
+    <div className="h-[calc(100vh-140px)] flex flex-col items-center justify-center p-4 sm:p-8">
       {/* Subtle ambient glow */}
       <div className="fixed inset-0 pointer-events-none">
-        <div 
+        <div
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full blur-[180px] transition-opacity duration-1000"
-          style={{ 
+          style={{
             background: isActive ? 'rgba(212, 168, 83, 0.04)' : 'transparent',
           }}
         />
       </div>
 
-      {/* Header */}
-      <div 
-        className="relative z-10 text-center mb-10"
-        style={{ animation: 'fadeIn 0.6s ease-out' }}
-      >
-        <h1 className="font-display text-3xl sm:text-4xl font-bold text-white mb-2">
-          Voice Agent
-        </h1>
-        <p className="text-white/40 font-sans text-sm">
-          Hey <span className="text-gold">{userName}</span> — press the mic to start
-        </p>
-      </div>
-
       {/* Voice Orb */}
-      <div className="relative z-10 mb-10">
+      <div className="relative z-10 mb-8">
         {/* Outer pulse rings */}
         {isActive && (
           <>
-            <div 
+            <div
               className="absolute inset-0 rounded-full bg-gold/10 animate-pulse-ring"
               style={{ transform: `scale(${1.2 + audioLevel * 0.4})` }}
             />
-            <div 
+            <div
               className="absolute inset-0 rounded-full bg-gold/5 animate-pulse-ring"
-              style={{ 
+              style={{
                 animationDelay: '0.7s',
-                transform: `scale(${1.1 + audioLevel * 0.2})` 
+                transform: `scale(${1.1 + audioLevel * 0.2})`,
               }}
             />
           </>
         )}
-        
+
         {/* Main button */}
         <button
           onClick={isActive ? handleStop : handleStart}
           className={`
-            relative w-28 h-28 sm:w-36 sm:h-36 rounded-full
+            relative w-24 h-24 sm:w-28 sm:h-28 rounded-full
             flex items-center justify-center
             transition-all duration-500 ease-out
-            ${isActive 
-              ? 'bg-charcoal' 
-              : 'bg-charcoal hover:bg-graphite'
-            }
+            ${isActive ? 'bg-charcoal' : 'bg-charcoal hover:bg-graphite'}
             border ${isActive ? 'border-gold/30' : 'border-white/5 hover:border-gold/20'}
             group
           `}
           style={{
-            boxShadow: isActive 
-              ? `0 0 ${30 + audioLevel * 50}px rgba(212, 168, 83, ${0.15 + audioLevel * 0.2})` 
-              : '0 0 0 rgba(0,0,0,0)'
+            boxShadow: isActive
+              ? `0 0 ${30 + audioLevel * 50}px rgba(212, 168, 83, ${0.15 + audioLevel * 0.2})`
+              : '0 0 0 rgba(0,0,0,0)',
           }}
         >
           {isActive ? (
-            <MicOff className="w-10 h-10 sm:w-12 sm:h-12 text-gold/80 group-hover:text-gold transition-colors" />
+            <MicOff className="w-8 h-8 sm:w-10 sm:h-10 text-gold/80 group-hover:text-gold transition-colors" />
           ) : (
-            <Mic className="w-10 h-10 sm:w-12 sm:h-12 text-white/40 group-hover:text-gold transition-colors" />
+            <Mic className="w-8 h-8 sm:w-10 sm:h-10 text-white/40 group-hover:text-gold transition-colors" />
           )}
-          
+
           {/* Speaking indicator */}
           {isSpeaking && (
             <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 bg-gold px-3 py-1 rounded-full">
@@ -390,35 +312,40 @@ export default function VoiceAgentPage() {
         </button>
       </div>
 
-      {/* Agent info & Status indicators */}
-      <div className="relative z-10 flex flex-col items-center gap-3 mb-8">
-        {/* Current agent voice */}
-        {agentConfig && (
-          <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-charcoal/50 border border-white/5">
-            <Volume2 className="w-4 h-4 text-gold/60" />
-            <span className="text-white/60 text-xs">Voice:</span>
-            <span className="text-white text-xs font-medium">{agentConfig.voiceName}</span>
-            <button
-              onClick={handleReconfigureAgent}
-              disabled={isActive}
-              className="ml-2 p-1 rounded hover:bg-white/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Reconfigure agent"
-            >
-              <Settings2 className="w-3.5 h-3.5 text-white/40 hover:text-gold/80" />
-            </button>
-          </div>
-        )}
-        
-        {/* Status indicators */}
-        <div className="flex items-center gap-4">
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border ${isConnected ? 'border-gold/20 text-gold/80' : 'border-white/5 text-white/30'}`}>
-            <Zap className="w-3 h-3" />
-            <span className="text-xs font-medium">{isConnected ? 'Connected' : 'Disconnected'}</span>
-          </div>
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border ${isPlaying() ? 'border-gold/20 text-gold/80' : 'border-white/5 text-white/30'}`}>
-            <Volume2 className="w-3 h-3" />
-            <span className="text-xs font-medium">{isPlaying() ? 'Playing' : 'Silent'}</span>
-          </div>
+      {/* Status indicators */}
+      <div className="relative z-10 flex items-center gap-4 mb-6">
+        <div
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border ${
+            isConnected ? 'border-gold/20 text-gold/80' : 'border-white/5 text-white/30'
+          }`}
+        >
+          <Zap className="w-3 h-3" />
+          <span className="text-xs font-medium">{isConnected ? 'Connected' : 'Disconnected'}</span>
+        </div>
+        <div
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border ${
+            isPlaying() ? 'border-gold/20 text-gold/80' : 'border-white/5 text-white/30'
+          }`}
+        >
+          <Volume2 className="w-3 h-3" />
+          <span className="text-xs font-medium">{isPlaying() ? 'Playing' : 'Silent'}</span>
+        </div>
+        <div
+          className={`flex items-center gap-2 px-3 py-1.5 rounded-full bg-charcoal border ${
+            isSearching ? 'border-blue-400/30 text-blue-400' : 'border-emerald-500/20 text-emerald-400/80'
+          }`}
+        >
+          {isSearching ? (
+            <>
+              <Search className="w-3 h-3 animate-pulse" />
+              <span className="text-xs font-medium">Searching...</span>
+            </>
+          ) : (
+            <>
+              <Globe className="w-3 h-3" />
+              <span className="text-xs font-medium">Web Search</span>
+            </>
+          )}
         </div>
       </div>
 
@@ -436,14 +363,11 @@ export default function VoiceAgentPage() {
           <h2 className="font-sans text-sm font-medium text-white/60">Conversation</h2>
         </div>
 
-        <div className="h-56 overflow-y-auto space-y-3 pr-2">
+        <div className="h-64 overflow-y-auto space-y-3 pr-2">
           {messages.length === 0 && !currentUserText && !currentAgentText && (
             <div className="h-full flex items-center justify-center">
               <p className="text-white/20 text-sm text-center">
-                {isActive 
-                  ? "I'm listening... speak naturally" 
-                  : 'Start speaking to begin the conversation'
-                }
+                {isActive ? "I'm listening... speak naturally" : 'Press the mic to start chatting'}
               </p>
             </div>
           )}
@@ -456,9 +380,10 @@ export default function VoiceAgentPage() {
               <div
                 className={`
                   max-w-[80%] px-4 py-2.5 rounded-xl
-                  ${message.speaker === 'user'
-                    ? 'bg-gold/10 text-white/90 rounded-br-sm'
-                    : 'bg-white/5 text-white/80 rounded-bl-sm'
+                  ${
+                    message.speaker === 'user'
+                      ? 'bg-gold/10 text-white/90 rounded-br-sm'
+                      : 'bg-white/5 text-white/80 rounded-bl-sm'
                   }
                 `}
               >
@@ -496,6 +421,6 @@ export default function VoiceAgentPage() {
       <p className="relative z-10 mt-6 text-white/20 text-xs text-center">
         Speak naturally • Interrupt anytime • Click mic to stop
       </p>
-    </main>
+    </div>
   );
 }
