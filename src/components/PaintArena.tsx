@@ -1,12 +1,15 @@
 'use client';
 
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Mic, MicOff, Send, Paintbrush, Sparkles, RefreshCw, Download, Loader2 } from 'lucide-react';
+import { Mic, MicOff, Send, Paintbrush, Sparkles, RefreshCw, Download, Loader2, Image as ImageIcon } from 'lucide-react';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useAudioCapture } from '@/hooks/useAudioCapture';
 import { useVAD } from '@/hooks/useVAD';
 import { useTTSAudio } from '@/hooks/useTTSAudio';
 import { IncomingMessage } from '@/types';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent } from '@/components/ui/card';
 
 interface PaintArenaProps {
   userName: string;
@@ -338,111 +341,129 @@ export default function PaintArena({ userName, agentConfig }: PaintArenaProps) {
           </div>
           {generatedImage && (
             <div className="flex items-center gap-2">
-              <button
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={handleNewDrawing}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-white/60 hover:text-white text-sm transition-all"
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw className="w-4 h-4 mr-2" />
                 New
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
                 onClick={handleDownload}
-                className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-sm transition-all"
+                className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/30"
               >
-                <Download className="w-4 h-4" />
+                <Download className="w-4 h-4 mr-2" />
                 Save
-              </button>
+              </Button>
             </div>
           )}
         </div>
 
         {/* Canvas display */}
-        <div className="flex-1 relative rounded-2xl overflow-hidden bg-gradient-to-br from-charcoal to-graphite border border-white/5">
-          {/* Empty state / Asking phase */}
-          {phase === 'asking' && !generatedImage && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center max-w-md px-6">
-                <div className="w-20 h-20 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-rose-500/20 to-orange-500/20 flex items-center justify-center border border-rose-500/20">
-                  <Sparkles className="w-10 h-10 text-rose-400" />
-                </div>
-                <h3 className="text-xl font-display font-semibold text-white mb-3">
-                  What would you like to draw?
-                </h3>
-                <p className="text-white/40 text-sm leading-relaxed">
-                  Describe your vision and I&apos;ll bring it to life. You can speak or type your idea.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Generating phase - Loading skeleton */}
-          {phase === 'generating' && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="text-center">
-                {/* Animated skeleton */}
-                <div className="relative w-64 h-64 mx-auto mb-6">
-                  {/* Pulsing background */}
-                  <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-rose-500/10 to-orange-500/10 animate-pulse" />
-                  
-                  {/* Shimmer effect */}
-                  <div className="absolute inset-0 rounded-2xl overflow-hidden">
-                    <div 
-                      className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent"
-                      style={{
-                        animation: 'shimmer 2s infinite',
-                        transform: 'translateX(-100%)',
-                      }}
-                    />
+        <Card className="flex-1 relative overflow-hidden border-rose-500/20 bg-gradient-to-br from-charcoal to-graphite">
+          <CardContent className="h-full p-0">
+            {/* Empty state / Asking phase */}
+            {phase === 'asking' && !generatedImage && (
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="text-center max-w-md px-6">
+                  <div className="w-24 h-24 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-rose-500/20 to-orange-500/20 flex items-center justify-center border border-rose-500/30 shadow-lg">
+                    <Sparkles className="w-12 h-12 text-rose-400" />
                   </div>
-                  
-                  {/* Center loader */}
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="relative">
-                      <Loader2 className="w-12 h-12 text-rose-400 animate-spin" />
-                      <div className="absolute inset-0 w-12 h-12 rounded-full bg-rose-500/20 animate-ping" />
+                  <h3 className="text-2xl font-display font-semibold text-white mb-3">
+                    What would you like to draw?
+                  </h3>
+                  <p className="text-white/50 text-sm leading-relaxed mb-4">
+                    Describe your vision and I&apos;ll bring it to life. You can speak or type your idea.
+                  </p>
+                  <div className="flex items-center justify-center gap-2 text-white/30 text-xs">
+                    <ImageIcon className="w-4 h-4" />
+                    <span>AI-powered image generation</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Generating phase - Loading skeleton */}
+            {phase === 'generating' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-rose-500/5 to-orange-500/5">
+                <div className="text-center">
+                  {/* Animated skeleton */}
+                  <div className="relative w-80 h-80 mx-auto mb-6">
+                    {/* Pulsing background */}
+                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-rose-500/10 to-orange-500/10 animate-pulse border border-rose-500/20" />
+                    
+                    {/* Shimmer effect */}
+                    <div className="absolute inset-0 rounded-2xl overflow-hidden">
+                      <div 
+                        className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent"
+                        style={{
+                          animation: 'shimmer 2s infinite',
+                          transform: 'translateX(-100%)',
+                        }}
+                      />
+                    </div>
+                    
+                    {/* Center loader */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="relative">
+                        <Loader2 className="w-16 h-16 text-rose-400 animate-spin" />
+                        <div className="absolute inset-0 w-16 h-16 rounded-full bg-rose-500/20 animate-ping" />
+                      </div>
                     </div>
                   </div>
+                  
+                  <p className="text-white/70 text-base font-medium mb-2">Creating your artwork...</p>
+                  {currentPrompt && (
+                    <Card className="max-w-md mx-auto bg-white/5 border-rose-500/20">
+                      <CardContent className="p-3">
+                        <p className="text-white/50 text-sm italic">
+                          &quot;{currentPrompt}&quot;
+                        </p>
+                      </CardContent>
+                    </Card>
+                  )}
                 </div>
-                
-                <p className="text-white/60 text-sm font-medium mb-2">Creating your artwork...</p>
-                {currentPrompt && (
-                  <p className="text-white/30 text-xs max-w-xs mx-auto truncate">
-                    &quot;{currentPrompt}&quot;
-                  </p>
-                )}
               </div>
-            </div>
-          )}
+            )}
 
-          {/* Generated image display */}
-          {generatedImage && phase !== 'generating' && (
-            <div className="absolute inset-0 flex items-center justify-center p-4">
-              <img
-                src={generatedImage}
-                alt="Generated artwork"
-                className="max-w-full max-h-full object-contain rounded-xl shadow-2xl"
-                style={{ animation: 'fadeIn 0.5s ease-out' }}
-              />
-            </div>
-          )}
-        </div>
+            {/* Generated image display */}
+            {generatedImage && phase !== 'generating' && (
+              <div className="absolute inset-0 flex items-center justify-center p-6">
+                <div className="relative max-w-full max-h-full">
+                  <img
+                    src={generatedImage}
+                    alt="Generated artwork"
+                    className="max-w-full max-h-full object-contain rounded-xl shadow-2xl border border-white/10"
+                    style={{ animation: 'fadeIn 0.5s ease-out' }}
+                  />
+                  <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-rose-500/80 border-2 border-void flex items-center justify-center">
+                    <ImageIcon className="w-3 h-3 text-white" />
+                  </div>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Right side - Chat area */}
-      <div className="w-96 flex flex-col border-l border-white/5 bg-charcoal/30">
+      <Card className="w-96 flex flex-col border-l-0 rounded-l-none">
         {/* Chat header */}
-        <div className="p-4 border-b border-white/5">
+        <div className="p-4 border-b border-white/5 bg-charcoal/50">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400' : 'bg-white/20'}`} />
-              <span className="text-white/60 text-sm">
+              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-400 animate-pulse' : 'bg-white/20'}`} />
+              <span className="text-white/60 text-sm font-medium">
                 {isGenerating ? 'Generating...' : isConnected ? 'Connected' : 'Disconnected'}
               </span>
             </div>
             {isSpeaking && (
-              <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-rose-500/20">
+              <div className="flex items-center gap-2 px-2 py-1 rounded-full bg-rose-500/20 border border-rose-500/30">
                 <div className="w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
-                <span className="text-rose-300 text-xs">Speaking</span>
+                <span className="text-rose-300 text-xs font-medium">Speaking</span>
               </div>
             )}
           </div>
@@ -465,17 +486,19 @@ export default function PaintArena({ userName, agentConfig }: PaintArenaProps) {
               key={message.id}
               className={`flex ${message.speaker === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div
+              <Card
                 className={`
-                  max-w-[85%] px-4 py-2.5 rounded-2xl
+                  max-w-[85%] border-0
                   ${message.speaker === 'user'
                     ? 'bg-gradient-to-r from-rose-500/20 to-orange-500/20 text-white/90 rounded-br-sm border border-rose-500/20'
                     : 'bg-white/5 text-white/80 rounded-bl-sm'
                   }
                 `}
               >
-                <p className="text-sm leading-relaxed">{message.text}</p>
-              </div>
+                <CardContent className="px-4 py-2.5">
+                  <p className="text-sm leading-relaxed">{message.text}</p>
+                </CardContent>
+              </Card>
             </div>
           ))}
 
@@ -502,45 +525,48 @@ export default function PaintArena({ userName, agentConfig }: PaintArenaProps) {
 
         {/* Error display */}
         {error && (
-          <div className="mx-4 mb-2 px-4 py-2 bg-red-500/10 border border-red-500/20 rounded-lg text-red-400 text-xs">
-            {error}
+          <div className="mx-4 mb-2">
+            <Card className="bg-red-500/10 border-red-500/20">
+              <CardContent className="px-4 py-2">
+                <p className="text-red-400 text-xs">{error}</p>
+              </CardContent>
+            </Card>
           </div>
         )}
 
         {/* Input area */}
-        <div className="p-4 border-t border-white/5">
+        <div className="p-4 border-t border-white/5 bg-charcoal/50">
           {/* Text input */}
           <form onSubmit={handleTextSubmit} className="flex items-center gap-2 mb-3">
-            <input
+            <Input
               ref={inputRef}
               type="text"
               value={textInput}
               onChange={(e) => setTextInput(e.target.value)}
               placeholder={isGenerating ? "Please wait..." : "Type your message..."}
               disabled={isGenerating}
-              className="flex-1 px-4 py-2.5 bg-charcoal rounded-xl text-white text-sm placeholder-white/20 outline-none border border-white/5 focus:border-rose-500/30 transition-colors disabled:opacity-50"
+              className="flex-1 bg-charcoal border-white/5 focus-visible:border-rose-500/30"
             />
-            <button
+            <Button
               type="submit"
               disabled={!textInput.trim() || isGenerating}
-              className="p-2.5 rounded-xl bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              size="icon"
+              className="bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/30"
             >
               <Send className="w-4 h-4" />
-            </button>
+            </Button>
           </form>
 
           {/* Voice button */}
-          <button
+          <Button
             onClick={isActive ? handleStop : handleStart}
             disabled={isGenerating}
+            variant={isActive ? 'default' : 'secondary'}
             className={`
-              w-full flex items-center justify-center gap-2 py-3 rounded-xl
-              font-medium text-sm transition-all duration-300
-              ${isGenerating 
-                ? 'bg-white/5 text-white/30 cursor-not-allowed'
-                : isActive
-                ? 'bg-gradient-to-r from-rose-500/20 to-orange-500/20 text-white border border-rose-500/30'
-                : 'bg-white/5 text-white/60 hover:bg-white/10 hover:text-white'
+              w-full
+              ${isActive
+                ? 'bg-gradient-to-r from-rose-500/20 to-orange-500/20 text-white border-rose-500/30'
+                : ''
               }
             `}
             style={{
@@ -551,23 +577,23 @@ export default function PaintArena({ userName, agentConfig }: PaintArenaProps) {
           >
             {isGenerating ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" />
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                 <span>Generating...</span>
               </>
             ) : isActive ? (
               <>
-                <MicOff className="w-4 h-4" />
+                <MicOff className="w-4 h-4 mr-2" />
                 <span>Stop Listening</span>
               </>
             ) : (
               <>
-                <Mic className="w-4 h-4" />
+                <Mic className="w-4 h-4 mr-2" />
                 <span>Start Voice</span>
               </>
             )}
-          </button>
+          </Button>
         </div>
-      </div>
+      </Card>
 
       {/* Shimmer animation style */}
       <style jsx>{`

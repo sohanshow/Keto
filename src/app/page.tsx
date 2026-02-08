@@ -312,7 +312,7 @@ export default function VoiceAgentPage() {
 
   // ─── Voice Agent Screen (legacy, kept for backward compatibility) ──
   return (
-    <main className="min-h-screen bg-void flex flex-col items-center justify-center p-4 sm:p-8">
+    <main className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-8 relative">
       {/* Subtle ambient glow */}
       <div className="fixed inset-0 pointer-events-none">
         <div 

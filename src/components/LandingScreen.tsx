@@ -3,6 +3,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { ArrowRight, User, Settings } from 'lucide-react';
 import { SignInButton, SignUpButton, SignedIn, SignedOut, UserButton } from '@clerk/nextjs';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 
 interface LandingScreenProps {
   onNameSubmit: (name: string) => void;
@@ -37,8 +39,8 @@ export default function LandingScreen({ onNameSubmit }: LandingScreenProps) {
   return (
     <div
       className={`
-        min-h-screen bg-void flex flex-col items-center justify-center px-6
-        transition-all duration-700 ease-out
+        min-h-screen flex flex-col items-center justify-center px-6
+        transition-all duration-700 ease-out relative
         ${isSubmitting ? 'opacity-0 scale-95' : 'opacity-100 scale-100'}
       `}
     >
@@ -156,8 +158,8 @@ export default function LandingScreen({ onNameSubmit }: LandingScreenProps) {
                 `}
               />
 
-              <div className="relative flex items-center bg-charcoal rounded-xl overflow-hidden">
-                <input
+              <div className="relative flex items-center gap-2">
+                <Input
                   ref={inputRef}
                   type="text"
                   value={name}
@@ -165,32 +167,20 @@ export default function LandingScreen({ onNameSubmit }: LandingScreenProps) {
                   onFocus={() => setIsFocused(true)}
                   onBlur={() => setIsFocused(false)}
                   placeholder="Enter your name"
-                  className="
-                    w-full px-6 py-5 bg-transparent
-                    text-lg text-white placeholder-white/20
-                    font-sans font-medium
-                    outline-none
-                    caret-gold
-                  "
+                  className="h-14 text-lg bg-charcoal border-white/10 focus-visible:border-gold/50"
                   maxLength={50}
                   autoComplete="off"
                   spellCheck={false}
                 />
 
-                <button
+                <Button
                   type="submit"
                   disabled={!name.trim()}
-                  className={`
-                    flex-shrink-0 mr-3 p-3 rounded-lg
-                    transition-all duration-300 ease-out
-                    ${name.trim()
-                      ? 'bg-gold text-void hover:bg-amber hover:scale-105 active:scale-95 cursor-pointer'
-                      : 'bg-smoke text-white/20 cursor-not-allowed'
-                    }
-                  `}
+                  size="icon"
+                  className="h-14 w-14 shrink-0"
                 >
                   <ArrowRight className="w-5 h-5" />
-                </button>
+                </Button>
               </div>
             </div>
 

@@ -15,6 +15,12 @@ import {
   Check
 } from 'lucide-react';
 import { SignOutButton, useUser, SignedIn, SignedOut, RedirectToSignIn } from '@clerk/nextjs';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Switch } from '@/components/ui/switch';
+import { Slider } from '@/components/ui/slider';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 export default function SettingsPage() {
   const router = useRouter();
@@ -67,22 +73,24 @@ function SettingsContent({ router, user }: { router: ReturnType<typeof useRouter
   };
 
   return (
-    <div className="min-h-screen bg-void">
-      {/* Subtle radial gradient */}
-      <div className="fixed inset-0 pointer-events-none">
+    <div className="min-h-screen relative">
+      {/* Subtle radial gradient overlay */}
+      <div className="fixed inset-0 pointer-events-none z-0">
         <div className="absolute top-1/3 left-1/2 -translate-x-1/2 w-[800px] h-[800px] bg-gold/[0.02] rounded-full blur-[150px]" />
+        <div className="absolute bottom-1/4 right-1/4 w-[600px] h-[600px] bg-white/[0.01] rounded-full blur-[120px]" />
       </div>
 
-      <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 py-8">
+      <div className="relative z-10 max-w-4xl mx-auto px-4 sm:px-6 py-8" style={{ position: 'relative', zIndex: 1 }}>
         {/* Header */}
         <div className="mb-8">
-          <button
+          <Button
+            variant="ghost"
             onClick={handleBack}
-            className="flex items-center gap-2 text-white/60 hover:text-white mb-4 transition-colors"
+            className="mb-4"
           >
-            <ArrowLeft className="w-4 h-4" />
-            <span className="text-sm">Back</span>
-          </button>
+            <ArrowLeft className="w-4 h-4 mr-2" />
+            Back
+          </Button>
           <div className="flex items-center gap-3">
             <Settings className="w-6 h-6 text-gold" />
             <h1 className="font-display text-3xl font-bold text-white">Settings</h1>
@@ -91,247 +99,205 @@ function SettingsContent({ router, user }: { router: ReturnType<typeof useRouter
         </div>
 
         {/* Profile Section */}
-        <section className="mb-8 bg-charcoal/50 border border-white/5 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <User className="w-5 h-5 text-gold" />
-            <h2 className="font-display text-xl font-semibold text-white">Profile</h2>
-          </div>
-          
-          <div className="space-y-4">
-            <div>
-              <label className="block text-white/60 text-sm mb-2">Email</label>
-              <div className="px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white">
-                {user?.primaryEmailAddress?.emailAddress || 'Not set'}
-              </div>
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <User className="w-5 h-5 text-gold" />
+              Profile
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-white/60">Email</Label>
+              <Input 
+                value={user?.primaryEmailAddress?.emailAddress || 'Not set'} 
+                disabled
+                className="bg-white/5"
+              />
             </div>
             
-            <div>
-              <label className="block text-white/60 text-sm mb-2">Username</label>
-              <div className="px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white">
-                {user?.username || user?.firstName || 'Not set'}
-              </div>
+            <div className="space-y-2">
+              <Label className="text-white/60">Username</Label>
+              <Input 
+                value={user?.username || user?.firstName || 'Not set'} 
+                disabled
+                className="bg-white/5"
+              />
             </div>
-          </div>
-        </section>
+          </CardContent>
+        </Card>
 
         {/* Notifications Section */}
-        <section className="mb-8 bg-charcoal/50 border border-white/5 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <Bell className="w-5 h-5 text-gold" />
-            <h2 className="font-display text-xl font-semibold text-white">Notifications</h2>
-          </div>
-          
-          <div className="space-y-4">
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <Bell className="w-5 h-5 text-gold" />
+              Notifications
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
             {Object.entries(notifications).map(([key, value]) => (
               <div key={key} className="flex items-center justify-between">
-                <div>
-                  <label className="text-white font-medium capitalize">{key}</label>
-                  <p className="text-white/40 text-sm">
+                <div className="space-y-0.5">
+                  <Label className="text-white font-medium capitalize">{key}</Label>
+                  <CardDescription>
                     {key === 'email' && 'Receive email notifications'}
                     {key === 'push' && 'Receive push notifications'}
                     {key === 'sms' && 'Receive SMS notifications'}
-                  </p>
+                  </CardDescription>
                 </div>
-                <button
-                  onClick={() => setNotifications({ ...notifications, [key]: !value })}
-                  className={`
-                    relative w-12 h-6 rounded-full transition-colors duration-300
-                    ${value ? 'bg-gold' : 'bg-white/10'}
-                  `}
-                >
-                  <div
-                    className={`
-                      absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-300
-                      ${value ? 'translate-x-6' : 'translate-x-0'}
-                    `}
-                  />
-                </button>
+                <Switch
+                  checked={value}
+                  onCheckedChange={(checked) => setNotifications({ ...notifications, [key]: checked })}
+                />
               </div>
             ))}
-          </div>
-        </section>
+          </CardContent>
+        </Card>
 
         {/* Preferences Section */}
-        <section className="mb-8 bg-charcoal/50 border border-white/5 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <Moon className="w-5 h-5 text-gold" />
-            <h2 className="font-display text-xl font-semibold text-white">Preferences</h2>
-          </div>
-          
-          <div className="space-y-6">
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <Moon className="w-5 h-5 text-gold" />
+              Preferences
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
             {/* Theme */}
-            <div>
-              <label className="block text-white font-medium mb-3">Theme</label>
+            <div className="space-y-2">
+              <Label className="text-white font-medium">Theme</Label>
               <div className="flex gap-2">
                 {['dark', 'light', 'auto'].map((theme) => (
-                  <button
+                  <Button
                     key={theme}
+                    variant={preferences.theme === theme ? 'default' : 'outline'}
+                    size="sm"
                     onClick={() => setPreferences({ ...preferences, theme })}
-                    className={`
-                      flex-1 px-4 py-2 rounded-lg border transition-all
-                      ${preferences.theme === theme
-                        ? 'bg-gold/20 border-gold/50 text-white'
-                        : 'bg-white/5 border-white/10 text-white/60 hover:border-white/20'
-                      }
-                    `}
+                    className={preferences.theme === theme ? '' : 'flex-1'}
                   >
                     <span className="capitalize">{theme}</span>
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
 
             {/* Language */}
-            <div>
-              <label className="block text-white font-medium mb-3">Language</label>
+            <div className="space-y-2">
+              <Label className="text-white font-medium">Language</Label>
               <div className="flex gap-2">
                 {['en', 'es', 'fr', 'de'].map((lang) => (
-                  <button
+                  <Button
                     key={lang}
+                    variant={preferences.language === lang ? 'default' : 'outline'}
+                    size="sm"
                     onClick={() => setPreferences({ ...preferences, language: lang })}
-                    className={`
-                      px-4 py-2 rounded-lg border transition-all
-                      ${preferences.language === lang
-                        ? 'bg-gold/20 border-gold/50 text-white'
-                        : 'bg-white/5 border-white/10 text-white/60 hover:border-white/20'
-                      }
-                    `}
                   >
                     {lang.toUpperCase()}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
 
             {/* Volume */}
-            <div>
-              <label className="block text-white font-medium mb-3">
+            <div className="space-y-2">
+              <Label className="text-white font-medium">
                 Volume: {preferences.volume}%
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={preferences.volume}
-                onChange={(e) => setPreferences({ ...preferences, volume: parseInt(e.target.value) })}
-                className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-gold"
+              </Label>
+              <Slider
+                value={[preferences.volume]}
+                onValueChange={(value) => setPreferences({ ...preferences, volume: value[0] })}
+                max={100}
+                min={0}
+                step={1}
+                className="w-full"
               />
             </div>
 
             {/* Auto-play */}
             <div className="flex items-center justify-between">
-              <div>
-                <label className="text-white font-medium">Auto-play audio</label>
-                <p className="text-white/40 text-sm">Automatically play agent responses</p>
+              <div className="space-y-0.5">
+                <Label className="text-white font-medium">Auto-play audio</Label>
+                <CardDescription>Automatically play agent responses</CardDescription>
               </div>
-              <button
-                onClick={() => setPreferences({ ...preferences, autoPlay: !preferences.autoPlay })}
-                className={`
-                  relative w-12 h-6 rounded-full transition-colors duration-300
-                  ${preferences.autoPlay ? 'bg-gold' : 'bg-white/10'}
-                `}
-              >
-                <div
-                  className={`
-                    absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-300
-                    ${preferences.autoPlay ? 'translate-x-6' : 'translate-x-0'}
-                  `}
-                />
-              </button>
+              <Switch
+                checked={preferences.autoPlay}
+                onCheckedChange={(checked) => setPreferences({ ...preferences, autoPlay: checked })}
+              />
             </div>
-          </div>
-        </section>
+          </CardContent>
+        </Card>
 
         {/* Privacy Section */}
-        <section className="mb-8 bg-charcoal/50 border border-white/5 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <Shield className="w-5 h-5 text-gold" />
-            <h2 className="font-display text-xl font-semibold text-white">Privacy</h2>
-          </div>
-          
-          <div className="space-y-6">
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <Shield className="w-5 h-5 text-gold" />
+              Privacy
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
             {/* Profile Visibility */}
-            <div>
-              <label className="block text-white font-medium mb-3">Profile Visibility</label>
+            <div className="space-y-2">
+              <Label className="text-white font-medium">Profile Visibility</Label>
               <div className="flex gap-2">
                 {['public', 'private', 'friends'].map((visibility) => (
-                  <button
+                  <Button
                     key={visibility}
+                    variant={privacy.profileVisibility === visibility ? 'default' : 'outline'}
+                    size="sm"
                     onClick={() => setPrivacy({ ...privacy, profileVisibility: visibility })}
-                    className={`
-                      flex-1 px-4 py-2 rounded-lg border transition-all capitalize
-                      ${privacy.profileVisibility === visibility
-                        ? 'bg-gold/20 border-gold/50 text-white'
-                        : 'bg-white/5 border-white/10 text-white/60 hover:border-white/20'
-                      }
-                    `}
+                    className="flex-1 capitalize"
                   >
                     {visibility}
-                  </button>
+                  </Button>
                 ))}
               </div>
             </div>
 
             {/* Data Sharing */}
             <div className="flex items-center justify-between">
-              <div>
-                <label className="text-white font-medium">Data Sharing</label>
-                <p className="text-white/40 text-sm">Allow data to be used for improvements</p>
+              <div className="space-y-0.5">
+                <Label className="text-white font-medium">Data Sharing</Label>
+                <CardDescription>Allow data to be used for improvements</CardDescription>
               </div>
-              <button
-                onClick={() => setPrivacy({ ...privacy, dataSharing: !privacy.dataSharing })}
-                className={`
-                  relative w-12 h-6 rounded-full transition-colors duration-300
-                  ${privacy.dataSharing ? 'bg-gold' : 'bg-white/10'}
-                `}
-              >
-                <div
-                  className={`
-                    absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-300
-                    ${privacy.dataSharing ? 'translate-x-6' : 'translate-x-0'}
-                  `}
-                />
-              </button>
+              <Switch
+                checked={privacy.dataSharing}
+                onCheckedChange={(checked) => setPrivacy({ ...privacy, dataSharing: checked })}
+              />
             </div>
 
             {/* Analytics */}
             <div className="flex items-center justify-between">
-              <div>
-                <label className="text-white font-medium">Analytics</label>
-                <p className="text-white/40 text-sm">Help us improve by sharing usage data</p>
+              <div className="space-y-0.5">
+                <Label className="text-white font-medium">Analytics</Label>
+                <CardDescription>Help us improve by sharing usage data</CardDescription>
               </div>
-              <button
-                onClick={() => setPrivacy({ ...privacy, analytics: !privacy.analytics })}
-                className={`
-                  relative w-12 h-6 rounded-full transition-colors duration-300
-                  ${privacy.analytics ? 'bg-gold' : 'bg-white/10'}
-                `}
-              >
-                <div
-                  className={`
-                    absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-transform duration-300
-                    ${privacy.analytics ? 'translate-x-6' : 'translate-x-0'}
-                  `}
-                />
-              </button>
+              <Switch
+                checked={privacy.analytics}
+                onCheckedChange={(checked) => setPrivacy({ ...privacy, analytics: checked })}
+              />
             </div>
-          </div>
-        </section>
+          </CardContent>
+        </Card>
 
         {/* Logout Section */}
-        <section className="bg-charcoal/50 border border-white/5 rounded-xl p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <LogOut className="w-5 h-5 text-red-400" />
-            <h2 className="font-display text-xl font-semibold text-white">Account</h2>
-          </div>
-          
-          <SignOutButton redirectUrl="/">
-            <button className="w-full px-6 py-3 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 rounded-lg font-medium transition-all duration-300 flex items-center justify-center gap-2">
-              <LogOut className="w-4 h-4" />
-              Sign Out
-            </button>
-          </SignOutButton>
-        </section>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <LogOut className="w-5 h-5 text-red-400" />
+              Account
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <SignOutButton redirectUrl="/">
+              <Button variant="destructive" className="w-full" size="lg">
+                <LogOut className="w-4 h-4 mr-2" />
+                Sign Out
+              </Button>
+            </SignOutButton>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
